@@ -43,6 +43,10 @@
 
 ## 사용 방법
 
+### EXE 다운로드
+
+[OpenWebUI-Local-AI-Launcher-Models.exe 다운로드](https://github.com/shoutjoy/openwebuiApp/blob/main/dist/OpenWebUI-Local-AI-Launcher-Models.exe)
+
 ### Python으로 실행
 
 `run_launcher.bat`를 더블클릭한다.
