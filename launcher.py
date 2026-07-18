@@ -148,6 +148,34 @@ def build_python311_openwebui_serve_command() -> str:
     return r'"C:\OpenWebUI\venv\Scripts\open-webui.exe" serve'
 
 
+def openwebui_venv_paths() -> dict[str, Path]:
+    root = Path("C:/OpenWebUI")
+    venv = root / "venv"
+    scripts = venv / "Scripts"
+    return {
+        "root": root,
+        "venv": venv,
+        "python": scripts / "python.exe",
+        "activate": scripts / "activate.bat",
+        "open_webui": scripts / "open-webui.exe",
+    }
+
+
+def path_exists(path: Path) -> bool:
+    try:
+        return path.exists()
+    except OSError:
+        return False
+
+
+def openwebui_venv_is_installed() -> bool:
+    paths = openwebui_venv_paths()
+    return all(
+        path_exists(paths[key])
+        for key in ("venv", "python", "activate", "open_webui")
+    )
+
+
 def find_ollama_command() -> str | None:
     found = shutil.which("ollama")
     if found:
@@ -404,6 +432,8 @@ class LauncherApp(tk.Tk):
         self.server_process: subprocess.Popen | None = None
         self.is_starting = False
         self.available_models: list[str] = []
+        self.internal_open_webui_command: str | None = None
+        self.venv_open_webui_ready = False
 
         self.title(f"{APP_NAME} v{APP_VERSION}")
         self.geometry("860x720")
@@ -469,7 +499,7 @@ class LauncherApp(tk.Tk):
 
         self.internal_start_button = ttk.Button(
             action_area,
-            text="내부 설치 실행",
+            text="Local환경실행",
             style="Primary.TButton",
             command=self.start_internal_chat,
         )
@@ -522,7 +552,7 @@ class LauncherApp(tk.Tk):
         ttk.Label(
             info,
             text=(
-                "① 내부 설치 실행은 설정에 저장된 open-webui serve 명령을 실행합니다.\n"
+                "① Local환경실행은 PC에 직접 설치된 open-webui 명령을 실행합니다.\n"
                 "② 가상환경 실행은 C:\\OpenWebUI\\venv 안의 open-webui.exe를 실행합니다.\n"
                 "③ Local AI Chat 버튼은 http://localhost:8080/ 채팅 화면을 엽니다."
             ),
@@ -572,6 +602,19 @@ class LauncherApp(tk.Tk):
             install_row,
             text="설치 명령 복사",
             command=self.copy_open_webui_install_command,
+        ).pack(side="left", expand=True, fill="x", padx=(4, 0))
+
+        venv_action_row = ttk.Frame(install_box)
+        venv_action_row.pack(fill="x", pady=(8, 0))
+        ttk.Button(
+            venv_action_row,
+            text="가상환경 설치 확인",
+            command=self.check_openwebui_venv,
+        ).pack(side="left", expand=True, fill="x", padx=(0, 4))
+        ttk.Button(
+            venv_action_row,
+            text="가상환경에서 실행",
+            command=self.start_venv_chat,
         ).pack(side="left", expand=True, fill="x", padx=(4, 0))
 
         models_box = ttk.LabelFrame(model_tab, text="Ollama 모델", padding=12)
@@ -690,6 +733,37 @@ class LauncherApp(tk.Tk):
         self.install_command_var.set(command)
         self.copy_to_clipboard(command, "Open WebUI 가상환경 설치 명령을 클립보드에 복사했습니다.")
 
+    def check_openwebui_venv(self) -> None:
+        paths = openwebui_venv_paths()
+        checks = [
+            ("설치 폴더", paths["root"]),
+            ("가상환경", paths["venv"]),
+            ("Python 실행 파일", paths["python"]),
+            ("활성화 스크립트", paths["activate"]),
+            ("Open WebUI 실행 파일", paths["open_webui"]),
+        ]
+        lines = []
+        missing = []
+        for label, path in checks:
+            exists = path_exists(path)
+            lines.append(f"{'OK' if exists else 'NO'}  {label}: {path}")
+            if not exists:
+                missing.append(label)
+
+        if missing:
+            title = "가상환경 설치가 아직 완료되지 않았습니다."
+            guide = "\n\n누락 항목이 있으면 `Open WebUI 가상환경 설치 실행` 버튼을 먼저 실행하십시오."
+            messagebox.showwarning(APP_NAME, title + "\n\n" + "\n".join(lines) + guide)
+        else:
+            self.config_data["venv_command"] = build_python311_openwebui_serve_command()
+            save_config(self.config_data)
+            messagebox.showinfo(
+                APP_NAME,
+                "가상환경 설치를 확인했습니다.\n\n"
+                + "\n".join(lines)
+                + "\n\n가상환경 실행 명령을 저장했습니다.",
+            )
+
     def update_model_command(self) -> None:
         model_name = self.model_var.get().strip() or DEFAULT_MODEL_TO_PULL
         ollama_command = find_ollama_command() or "ollama"
@@ -806,7 +880,18 @@ class LauncherApp(tk.Tk):
         browser_host = "localhost" if host in {"127.0.0.1", "0.0.0.0"} else host
         return f"http://{browser_host}:{self.config_data['port']}/"
 
+    def refresh_installation_detection(self) -> None:
+        found = find_open_webui_command()
+        self.internal_open_webui_command = found
+        if found:
+            self.config_data["command"] = f'{quote_cmd_arg(found)} serve'
+
+        self.venv_open_webui_ready = openwebui_venv_is_installed()
+        if self.venv_open_webui_ready:
+            self.config_data["venv_command"] = build_python311_openwebui_serve_command()
+
     def refresh_status(self) -> None:
+        self.refresh_installation_detection()
         host = self.config_data["host"]
         check_host = "127.0.0.1" if host == "0.0.0.0" else host
         port = int(self.config_data["port"])
@@ -815,7 +900,7 @@ class LauncherApp(tk.Tk):
 
         if port_is_open(check_host, port):
             self.status_var.set("Open WebUI가 실행 중입니다.")
-            self.internal_start_button.configure(text="내부 설치 실행")
+            self.internal_start_button.configure(text="Local환경실행")
             self.venv_start_button.configure(text="가상환경 실행")
         elif self.is_starting:
             self.status_var.set("Open WebUI를 시작하고 있습니다. CMD 창을 확인하십시오.")
@@ -823,17 +908,43 @@ class LauncherApp(tk.Tk):
             self.venv_start_button.configure(text="서버 시작 중...")
         else:
             self.status_var.set("Open WebUI가 현재 실행 중이 아닙니다.")
-            self.internal_start_button.configure(text="내부 설치 실행")
+            self.internal_start_button.configure(text="Local환경실행")
             self.venv_start_button.configure(text="가상환경 실행")
 
+        if self.is_starting:
+            self.configure_server_buttons("disabled")
+        else:
+            self.internal_start_button.configure(
+                state="normal" if self.internal_open_webui_command else "disabled"
+            )
+            self.venv_start_button.configure(
+                state="normal" if self.venv_open_webui_ready else "disabled"
+            )
+
     def start_internal_chat(self) -> None:
-        command = self.config_data["command"].strip()
+        self.refresh_installation_detection()
+        if not self.internal_open_webui_command:
+            messagebox.showwarning(
+                APP_NAME,
+                "PC에 직접 설치된 open-webui 실행 파일을 찾지 못했습니다.\n"
+                "`Open WebUI 가상환경 설치 실행` 후 `가상환경 실행`을 사용하거나, 설정에서 직접 실행 명령을 지정하십시오.",
+            )
+            return
+        command = f"{quote_cmd_arg(self.internal_open_webui_command)} serve"
         if not command:
-            messagebox.showwarning(APP_NAME, "설정에서 내부 설치 실행 명령을 입력하십시오.")
+            messagebox.showwarning(APP_NAME, "Local 환경 실행 명령을 찾지 못했습니다.")
             return
         self.start_chat_with_command(command, "Open WebUI Server")
 
     def start_venv_chat(self) -> None:
+        self.refresh_installation_detection()
+        if not self.venv_open_webui_ready:
+            messagebox.showwarning(
+                APP_NAME,
+                "Open WebUI 전용 가상환경 설치를 찾지 못했습니다.\n"
+                "`가상환경 설치 확인` 또는 `Open WebUI 가상환경 설치 실행`을 먼저 실행하십시오.",
+            )
+            return
         command = str(
             self.config_data.get("venv_command")
             or build_python311_openwebui_serve_command()
