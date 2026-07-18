@@ -1,4 +1,4 @@
-# Joonghee Park PhD 's OpenWebUI Local AI v3.1
+# Joonghee Park PhD 's OpenWebUI Local AI v3.1.2
 
 이 프로그램은 Windows에서 Open WebUI를 로컬로 실행하는 Tkinter 런처이다. 기존 BAT 실행 흐름을 앱 안으로 옮기고, 처음 사용자용 Open WebUI 설치 명령과 Ollama 모델 확인/설치 기능을 함께 제공한다.
 
@@ -16,7 +16,7 @@
 ## 실행 탭 버튼
 
 - `Local환경실행`: PC에 직접 설치된 `open-webui` 실행 파일을 자동으로 찾은 경우 활성화된다.
-- `가상환경 실행`: `C:\OpenWebUI\venv\Scripts\open-webui.exe`가 확인된 경우 활성화된다. `Open WebUI 가상환경 설치 실행`으로 만든 전용 가상환경에서 실행할 때 사용한다.
+- `가상환경 실행`: `C:\OpenWebUI\venv\Scripts\open-webui.exe`가 확인된 경우 활성화된다. 실행 시 `C:\OpenWebUI`로 이동하고 `venv\Scripts\activate.bat`로 가상환경을 활성화한 뒤 `open-webui serve`를 실행한다.
 - `Local AI Chat`: `http://localhost:8080/` 채팅 화면을 연다.
 - `자동실행`: 체크하면 다음에 앱을 켤 때 Open WebUI 서버를 자동으로 실행한다. 전용 가상환경이 있으면 가상환경 실행을 우선 사용하고, 없으면 Local환경실행을 사용한다.
 - `MDlive`: https://mdlivepro.vercel.app/ 를 연다.
@@ -32,11 +32,11 @@
 
 ### 가상환경 & 파이썬
 
-- `Open WebUI 가상환경 설치 실행`: `C:\OpenWebUI` 폴더를 만들고 Python 3.11 우선, 없으면 Python 3.12로 `venv` 가상환경을 만든 뒤, 그 안에서 `python -m pip install open-webui`를 실행한다. 실행 명령은 `"C:\OpenWebUI\venv\Scripts\open-webui.exe" serve`로 저장된다.
+- `Open WebUI 가상환경 설치 실행`: `C:\OpenWebUI` 폴더를 만들고 Python 3.11 우선, 없으면 Python 3.12로 `venv` 가상환경을 만든 뒤, 그 안에서 `python -m pip install open-webui`를 실행한다. 실행 명령은 `cd /d C:\OpenWebUI && call venv\Scripts\activate.bat && open-webui serve`로 저장된다.
 - `python pip upgrade`: 새 CMD 창에서 `python.exe -m pip install --upgrade pip`를 실행한다.
 - `설치 명령 복사`: CMD나 PowerShell에 붙여 넣을 수 있는 설치 명령을 복사한다.
 - `가상환경 설치 확인`: `C:\OpenWebUI\venv`와 `python.exe`, `activate.bat`, `open-webui.exe` 존재 여부를 확인한다.
-- `가상환경에서 실행`: 설치된 전용 가상환경의 `"C:\OpenWebUI\venv\Scripts\open-webui.exe" serve` 명령으로 서버를 실행한다.
+- `가상환경에서 실행`: `C:\OpenWebUI`로 이동하고 `venv\Scripts\activate.bat`를 실행한 다음 `open-webui serve`로 서버를 실행한다.
 
 ### AI 모델 설치
 
@@ -82,7 +82,7 @@ Open WebUI는 Python 버전 제약이 있다. 일반적으로 Python 3.11 또는
 
 설치가 끝나면 런처의 실행 명령은 다음 값으로 저장된다.
 
-    "C:\OpenWebUI\venv\Scripts\open-webui.exe" serve
+    cd /d C:\OpenWebUI && call venv\Scripts\activate.bat && open-webui serve
 
 `python pip upgrade` 버튼은 전역 Python의 pip만 업그레이드한다.
 
@@ -94,7 +94,7 @@ Open WebUI 설치에는 전용 가상환경 버튼을 사용하는 것이 더 �
 
 ### EXE 다운로드
 
-[OpenWebUI-Local-AI-Launcher-Tabbed-v5.exe 다운로드](https://github.com/shoutjoy/openwebuiApp/raw/refs/heads/main/dist/OpenWebUI-Local-AI-Launcher-Tabbed-v5.exe)
+[OpenWebUI-Local-AI-Launcher-Tabbed-v6.exe 다운로드](https://github.com/shoutjoy/openwebuiApp/raw/refs/heads/main/dist/OpenWebUI-Local-AI-Launcher-Tabbed-v6.exe)
 
 ### Python으로 실행
 

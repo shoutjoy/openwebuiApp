@@ -28,7 +28,7 @@ except ImportError:
     winreg = None
 
 APP_NAME = "Joonghee Park PhD 's OpenWebUI Local AI"
-APP_VERSION = "3.1.1"
+APP_VERSION = "3.1.2"
 
 APP_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "OpenWebUIChatLauncher"
 CONFIG_FILE = APP_DIR / "settings.json"
@@ -37,7 +37,7 @@ CREATE_NEW_CONSOLE = 0x00000010 if os.name == "nt" else 0
 
 DEFAULT_CONFIG = {
     "command": "open-webui serve",
-    "venv_command": r'"C:\OpenWebUI\venv\Scripts\open-webui.exe" serve',
+    "venv_command": r"cd /d C:\OpenWebUI && call venv\Scripts\activate.bat && open-webui serve",
     "host": "127.0.0.1",
     "port": 8080,
     "auto_open_browser": True,
@@ -51,6 +51,7 @@ HUGGING_FACE_MODELS_URL = "https://huggingface.co/models"
 MDLIVE_URL = "https://mdlivepro.vercel.app/"
 MDPRO_URL = "https://mdproviewer.vercel.app/"
 DEFAULT_MODEL_TO_PULL = "llama3.1:8b"
+LEGACY_DIRECT_VENV_COMMAND = r'"C:\OpenWebUI\venv\Scripts\open-webui.exe" serve'
 CONTEXT_MENU_KEY_NAME = "OpenWebUILocalAILauncher"
 CONTEXT_MENU_LABEL = "Joonghee Park PhD's OpenWebUI Local AI 실행"
 CONTEXT_MENU_REGISTRY_KEYS = [
@@ -83,6 +84,10 @@ def load_config() -> dict:
         config = {**DEFAULT_CONFIG, **loaded}
         if str(config.get("command", "")).strip() == str(config.get("venv_command", "")).strip():
             config["command"] = DEFAULT_CONFIG["command"]
+        if str(config.get("command", "")).strip() == LEGACY_DIRECT_VENV_COMMAND:
+            config["command"] = DEFAULT_CONFIG["command"]
+        if str(config.get("venv_command", "")).strip() == LEGACY_DIRECT_VENV_COMMAND:
+            config["venv_command"] = DEFAULT_CONFIG["venv_command"]
         return config
     except Exception:
         return DEFAULT_CONFIG.copy()
@@ -158,7 +163,7 @@ def build_python311_openwebui_setup_command() -> str:
 
 
 def build_python311_openwebui_serve_command() -> str:
-    return r'"C:\OpenWebUI\venv\Scripts\open-webui.exe" serve'
+    return r"cd /d C:\OpenWebUI && call venv\Scripts\activate.bat && open-webui serve"
 
 
 def openwebui_venv_paths() -> dict[str, Path]:
@@ -670,7 +675,7 @@ class LauncherApp(tk.Tk):
             info,
             text=(
                 "① Local환경실행은 PC에 직접 설치된 open-webui 명령을 실행합니다.\n"
-                "② 가상환경 실행은 C:\\OpenWebUI\\venv 안의 open-webui.exe를 실행합니다.\n"
+                "② 가상환경 실행은 C:\\OpenWebUI로 이동한 뒤 venv를 활성화하고 open-webui serve를 실행합니다.\n"
                 "③ 자동실행은 다음 앱 시작 때 가상환경을 우선 사용하고, 없으면 Local환경실행을 사용합니다.\n"
                 "④ Local AI Chat 버튼은 http://localhost:8080/ 채팅 화면을 엽니다."
             ),
@@ -834,7 +839,7 @@ class LauncherApp(tk.Tk):
                 APP_NAME,
                 "Open WebUI 전용 가상환경 설치 명령을 CMD 창에서 실행했습니다.\n\n"
                 "Python 3.11을 먼저 사용하고, 없으면 Python 3.12를 시도합니다.\n"
-                "설치가 끝나면 실행 명령은 C:\\OpenWebUI\\venv\\Scripts\\open-webui.exe serve 를 사용합니다.",
+                "설치가 끝나면 C:\\OpenWebUI로 이동해 venv를 활성화한 뒤 open-webui serve를 실행합니다.",
             )
         except Exception as exc:
             messagebox.showerror(APP_NAME, f"설치 CMD 창을 시작하지 못했습니다.\n\n{exc}")
