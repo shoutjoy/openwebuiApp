@@ -15,7 +15,8 @@
 
 ## 실행 탭 버튼
 
-- `Local AI model 실행`: `open-webui serve` 서버를 실행한다. 이미 서버가 실행 중이면 새로 실행하지 않고 상태만 표시한다.
+- `내부 설치 실행`: 설정에 저장된 일반 실행 명령을 사용한다. 기본값은 `open-webui serve`이며, PC에 직접 설치된 Open WebUI를 실행할 때 사용한다.
+- `가상환경 실행`: `C:\OpenWebUI\venv\Scripts\open-webui.exe serve`를 사용한다. `Open WebUI 가상환경 설치 실행`으로 만든 전용 가상환경에서 실행할 때 사용한다.
 - `Local AI Chat`: `http://localhost:8080/` 채팅 화면을 연다.
 - `MDlive`: https://mdlivepro.vercel.app/ 를 연다.
 - `MDpro`: https://mdproviewer.vercel.app/ 를 연다.
@@ -46,6 +47,43 @@
     ollama pull llama3.1:8b
     ollama pull qwen2.5:7b
     ollama pull gemma2:9b
+
+## Python, 가상환경, pip 설치 절차
+
+Open WebUI는 Python 버전 제약이 있다. 일반적으로 Python 3.11 또는 3.12 환경에서 설치해야 하며, Python 3.10 이하 또는 Python 3.13 이상에 연결된 `pip`로 설치하면 `Requires-Python >=3.11,<3.13` 오류가 날 수 있다.
+
+현재 PC의 Python 상태는 CMD에서 다음 명령으로 확인한다.
+
+    python --version
+    pip --version
+    py --list
+
+권장 설치 방식은 기존 Python을 삭제하지 않고 Open WebUI 전용 가상환경을 따로 만드는 것이다. 런처의 `Open WebUI 가상환경 설치 실행` 버튼은 아래 흐름을 CMD 창에서 실행한다.
+
+    cd /d C:\
+    if not exist OpenWebUI mkdir OpenWebUI
+    cd /d C:\OpenWebUI
+    py -3.11 --version
+    py -3.12 --version
+    py -3.11 -m venv venv
+    또는 py -3.12 -m venv venv
+    call venv\Scripts\activate.bat
+    python --version
+    python -m pip install --upgrade pip setuptools wheel
+    python -m pip install open-webui
+    python -m pip show open-webui
+
+실제 앱 내부 명령은 Python 3.11을 먼저 찾고, 없으면 Python 3.12를 사용한다. 둘 다 없으면 Python 3.11 64-bit 설치와 Python Launcher 설치가 필요하다는 메시지를 CMD 창에 표시한다.
+
+설치가 끝나면 런처의 실행 명령은 다음 값으로 저장된다.
+
+    "C:\OpenWebUI\venv\Scripts\open-webui.exe" serve
+
+`python pip upgrade` 버튼은 전역 Python의 pip만 업그레이드한다.
+
+    python.exe -m pip install --upgrade pip
+
+Open WebUI 설치에는 전용 가상환경 버튼을 사용하는 것이 더 안전하다.
 
 ## 사용 방법
 

@@ -32,6 +32,7 @@ CREATE_NEW_CONSOLE = 0x00000010 if os.name == "nt" else 0
 
 DEFAULT_CONFIG = {
     "command": "open-webui serve",
+    "venv_command": r'"C:\OpenWebUI\venv\Scripts\open-webui.exe" serve',
     "host": "127.0.0.1",
     "port": 8080,
     "auto_open_browser": True,
@@ -66,7 +67,10 @@ def load_config() -> dict:
         return DEFAULT_CONFIG.copy()
     try:
         loaded = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        return {**DEFAULT_CONFIG, **loaded}
+        config = {**DEFAULT_CONFIG, **loaded}
+        if str(config.get("command", "")).strip() == str(config.get("venv_command", "")).strip():
+            config["command"] = DEFAULT_CONFIG["command"]
+        return config
     except Exception:
         return DEFAULT_CONFIG.copy()
 
@@ -461,14 +465,23 @@ class LauncherApp(tk.Tk):
         action_area.pack(fill="x", pady=(12, 0))
         action_area.columnconfigure(0, weight=1)
         action_area.columnconfigure(1, weight=1)
+        action_area.columnconfigure(2, weight=1)
 
-        self.start_button = ttk.Button(
+        self.internal_start_button = ttk.Button(
             action_area,
-            text="Local AI model 실행",
+            text="내부 설치 실행",
             style="Primary.TButton",
-            command=self.start_chat,
+            command=self.start_internal_chat,
         )
-        self.start_button.grid(row=0, column=0, sticky="ew", ipady=10, padx=(0, 6))
+        self.internal_start_button.grid(row=0, column=0, sticky="ew", ipady=10, padx=(0, 6))
+
+        self.venv_start_button = ttk.Button(
+            action_area,
+            text="가상환경 실행",
+            style="Primary.TButton",
+            command=self.start_venv_chat,
+        )
+        self.venv_start_button.grid(row=0, column=1, sticky="ew", ipady=10, padx=6)
 
         self.chat_button = ttk.Button(
             action_area,
@@ -476,7 +489,7 @@ class LauncherApp(tk.Tk):
             style="Primary.TButton",
             command=self.open_browser,
         )
-        self.chat_button.grid(row=0, column=1, sticky="ew", ipady=10, padx=(6, 0))
+        self.chat_button.grid(row=0, column=2, sticky="ew", ipady=10, padx=(6, 0))
 
         small_row = ttk.Frame(run_tab)
         small_row.pack(fill="x", pady=(12, 0))
@@ -509,9 +522,9 @@ class LauncherApp(tk.Tk):
         ttk.Label(
             info,
             text=(
-                "① 실행 버튼을 누르면 별도의 CMD 창에서 open-webui serve가 실행됩니다.\n"
-                "② Local AI Chat 버튼은 http://localhost:8080/ 채팅 화면을 엽니다.\n"
-                "③ AI editor connect 버튼은 MDlive와 MDpro 웹 앱을 엽니다."
+                "① 내부 설치 실행은 설정에 저장된 open-webui serve 명령을 실행합니다.\n"
+                "② 가상환경 실행은 C:\\OpenWebUI\\venv 안의 open-webui.exe를 실행합니다.\n"
+                "③ Local AI Chat 버튼은 http://localhost:8080/ 채팅 화면을 엽니다."
             ),
             justify="left",
         ).pack(anchor="w")
@@ -652,7 +665,7 @@ class LauncherApp(tk.Tk):
     def install_open_webui(self) -> None:
         command = build_open_webui_install_command()
         self.install_command_var.set(r"C:\OpenWebUI\venv + Python 3.11/3.12 + python -m pip install open-webui")
-        self.config_data["command"] = build_python311_openwebui_serve_command()
+        self.config_data["venv_command"] = build_python311_openwebui_serve_command()
         save_config(self.config_data)
         try:
             start_cmd_window(command, "Install Open WebUI")
@@ -802,15 +815,39 @@ class LauncherApp(tk.Tk):
 
         if port_is_open(check_host, port):
             self.status_var.set("Open WebUI가 실행 중입니다.")
-            self.start_button.configure(text="Local AI model 실행")
+            self.internal_start_button.configure(text="내부 설치 실행")
+            self.venv_start_button.configure(text="가상환경 실행")
         elif self.is_starting:
             self.status_var.set("Open WebUI를 시작하고 있습니다. CMD 창을 확인하십시오.")
-            self.start_button.configure(text="Local AI model 시작 중...")
+            self.internal_start_button.configure(text="서버 시작 중...")
+            self.venv_start_button.configure(text="서버 시작 중...")
         else:
             self.status_var.set("Open WebUI가 현재 실행 중이 아닙니다.")
-            self.start_button.configure(text="Local AI model 실행")
+            self.internal_start_button.configure(text="내부 설치 실행")
+            self.venv_start_button.configure(text="가상환경 실행")
 
-    def start_chat(self) -> None:
+    def start_internal_chat(self) -> None:
+        command = self.config_data["command"].strip()
+        if not command:
+            messagebox.showwarning(APP_NAME, "설정에서 내부 설치 실행 명령을 입력하십시오.")
+            return
+        self.start_chat_with_command(command, "Open WebUI Server")
+
+    def start_venv_chat(self) -> None:
+        command = str(
+            self.config_data.get("venv_command")
+            or build_python311_openwebui_serve_command()
+        ).strip()
+        if not command:
+            messagebox.showwarning(APP_NAME, "가상환경 실행 명령을 찾지 못했습니다.")
+            return
+        self.start_chat_with_command(command, "Open WebUI venv Server")
+
+    def configure_server_buttons(self, state: str) -> None:
+        self.internal_start_button.configure(state=state)
+        self.venv_start_button.configure(state=state)
+
+    def start_chat_with_command(self, command: str, title: str) -> None:
         host = self.config_data["host"]
         check_host = "127.0.0.1" if host == "0.0.0.0" else host
         port = int(self.config_data["port"])
@@ -823,23 +860,18 @@ class LauncherApp(tk.Tk):
         if self.is_starting:
             return
 
-        command = self.config_data["command"].strip()
-        if not command:
-            messagebox.showwarning(APP_NAME, "설정에서 실행 명령을 입력하십시오.")
-            return
-
         self.is_starting = True
         self.progress.start(10)
-        self.start_button.configure(state="disabled")
+        self.configure_server_buttons("disabled")
         self.refresh_status()
 
         try:
             # /k를 사용하여 서버가 실패해도 CMD 창이 닫히지 않도록 한다.
-            self.server_process = start_cmd_window(command, "Open WebUI Server")
+            self.server_process = start_cmd_window(command, title)
         except Exception as exc:
             self.is_starting = False
             self.progress.stop()
-            self.start_button.configure(state="normal")
+            self.configure_server_buttons("normal")
             messagebox.showerror(APP_NAME, f"CMD 창을 시작하지 못했습니다.\n\n{exc}")
             self.refresh_status()
             return
@@ -869,7 +901,7 @@ class LauncherApp(tk.Tk):
     def _server_ready(self) -> None:
         self.is_starting = False
         self.progress.stop()
-        self.start_button.configure(state="normal")
+        self.configure_server_buttons("normal")
         self.refresh_status()
 
         if self.config_data.get("auto_open_browser", True):
@@ -878,7 +910,7 @@ class LauncherApp(tk.Tk):
     def _server_failed(self) -> None:
         self.is_starting = False
         self.progress.stop()
-        self.start_button.configure(state="normal")
+        self.configure_server_buttons("normal")
         self.refresh_status()
         messagebox.showerror(
             APP_NAME,
@@ -889,7 +921,7 @@ class LauncherApp(tk.Tk):
     def _server_timeout(self) -> None:
         self.is_starting = False
         self.progress.stop()
-        self.start_button.configure(state="normal")
+        self.configure_server_buttons("normal")
         self.refresh_status()
         messagebox.showwarning(
             APP_NAME,
