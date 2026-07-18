@@ -113,6 +113,10 @@ def build_open_webui_install_command() -> str:
     return "pip install open-webui"
 
 
+def build_python_pip_upgrade_command() -> str:
+    return "python.exe -m pip install --upgrade pip"
+
+
 def find_ollama_command() -> str | None:
     found = shutil.which("ollama")
     if found:
@@ -507,6 +511,11 @@ class LauncherApp(tk.Tk):
         ).pack(side="left", expand=True, fill="x", padx=(0, 4))
         ttk.Button(
             install_row,
+            text="python pip upgrade",
+            command=self.upgrade_python_pip,
+        ).pack(side="left", expand=True, fill="x", padx=4)
+        ttk.Button(
+            install_row,
             text="설치 명령 복사",
             command=self.copy_open_webui_install_command,
         ).pack(side="left", expand=True, fill="x", padx=(4, 0))
@@ -589,6 +598,13 @@ class LauncherApp(tk.Tk):
             start_cmd_window(command, "Install Open WebUI")
         except Exception as exc:
             messagebox.showerror(APP_NAME, f"설치 CMD 창을 시작하지 못했습니다.\n\n{exc}")
+
+    def upgrade_python_pip(self) -> None:
+        command = build_python_pip_upgrade_command()
+        try:
+            start_cmd_window(command, "python pip upgrade")
+        except Exception as exc:
+            messagebox.showerror(APP_NAME, f"pip upgrade CMD 창을 시작하지 못했습니다.\n\n{exc}")
 
     def copy_open_webui_install_command(self) -> None:
         command = build_open_webui_install_command()
