@@ -109,11 +109,8 @@ def find_python_command() -> str | None:
     return None
 
 
-def build_open_webui_install_command() -> str | None:
-    python_cmd = find_python_command()
-    if not python_cmd:
-        return None
-    return f"{python_cmd} -m pip install --upgrade open-webui"
+def build_open_webui_install_command() -> str:
+    return "pip install open-webui"
 
 
 def find_ollama_command() -> str | None:
@@ -382,9 +379,7 @@ class LauncherApp(tk.Tk):
         selected_model = str(self.config_data.get("selected_model") or DEFAULT_MODEL_TO_PULL)
         self.model_var = tk.StringVar(value=selected_model)
         self.model_status_var = tk.StringVar(value="Ollama에 설치된 모델을 자동으로 찾고 있습니다.")
-        self.install_command_var = tk.StringVar(
-            value=build_open_webui_install_command() or "Python 실행 명령을 찾지 못했습니다."
-        )
+        self.install_command_var = tk.StringVar(value=build_open_webui_install_command())
         self.model_command_var = tk.StringVar()
         self.model_var.trace_add("write", lambda *_: self.update_model_command())
 
@@ -589,14 +584,6 @@ class LauncherApp(tk.Tk):
 
     def install_open_webui(self) -> None:
         command = build_open_webui_install_command()
-        if not command:
-            messagebox.showwarning(
-                APP_NAME,
-                "Python 실행 명령을 찾지 못했습니다.\n"
-                "Python을 설치한 뒤 다시 실행하거나 CMD에서 직접 pip install open-webui를 실행하십시오.",
-            )
-            return
-
         self.install_command_var.set(command)
         try:
             start_cmd_window(command, "Install Open WebUI")
@@ -605,8 +592,6 @@ class LauncherApp(tk.Tk):
 
     def copy_open_webui_install_command(self) -> None:
         command = build_open_webui_install_command()
-        if not command:
-            command = "pip install open-webui"
         self.install_command_var.set(command)
         self.copy_to_clipboard(command, "Open WebUI 설치 명령을 클립보드에 복사했습니다.")
 

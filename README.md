@@ -26,7 +26,7 @@
 
 `설치 및 모델` 탭에서 다음 기능을 사용할 수 있다.
 
-- `Open WebUI 설치 실행`: 새 CMD 창에서 `py -m pip install --upgrade open-webui` 또는 `python -m pip install --upgrade open-webui`를 실행한다.
+- `Open WebUI 설치 실행`: 새 CMD 창에서 `pip install open-webui`를 실행한다.
 - `설치 명령 복사`: CMD나 PowerShell에 붙여 넣을 수 있는 설치 명령을 복사한다.
 - 앱 시작 시 `ollama list`를 자동 실행해 PC에 이미 다운로드된 Ollama 모델을 보여준다.
 - `모델 목록 새로고침`: 설치된 모델 목록을 다시 조회한다.
@@ -45,7 +45,7 @@
 
 ### EXE 다운로드
 
-[OpenWebUI-Local-AI-Launcher-Models.exe 다운로드](https://github.com/shoutjoy/openwebuiApp/raw/refs/heads/main/dist/OpenWebUI-Local-AI-Launcher-Models.exe)
+[OpenWebUI-Local-AI-Launcher-Models-Pip.exe 다운로드](https://github.com/shoutjoy/openwebuiApp/raw/refs/heads/main/dist/OpenWebUI-Local-AI-Launcher-Models-Pip.exe)
 
 ### Python으로 실행
 
