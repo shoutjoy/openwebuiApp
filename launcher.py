@@ -88,7 +88,7 @@ def port_is_open(host: str, port: int, timeout: float = 0.5) -> bool:
 
 
 def start_cmd_window(command: str, title: str) -> subprocess.Popen:
-    cmd_line = f'title {title} && echo [{APP_NAME}] {command} && {command}'
+    cmd_line = f'title {title} && echo [{APP_NAME}] {title} && {command}'
     return subprocess.Popen(
         ["cmd.exe", "/k", cmd_line],
         creationflags=CREATE_NEW_CONSOLE,
@@ -115,6 +115,25 @@ def build_open_webui_install_command() -> str:
 
 def build_python_pip_upgrade_command() -> str:
     return "python.exe -m pip install --upgrade pip"
+
+
+def build_python311_openwebui_setup_command() -> str:
+    return (
+        r"cd /d C:\ && "
+        r"if not exist OpenWebUI mkdir OpenWebUI && "
+        r"cd /d C:\OpenWebUI && "
+        r"py -3.11 --version && "
+        r"py -3.11 -m venv .venv && "
+        r"call .venv\Scripts\activate.bat && "
+        r"python.exe -m pip install --upgrade pip && "
+        r"pip install open-webui && "
+        r"echo. && "
+        r"echo [Complete] C:\OpenWebUI\.venv Open WebUI setup finished."
+    )
+
+
+def build_python311_openwebui_serve_command() -> str:
+    return r'"C:\OpenWebUI\.venv\Scripts\open-webui.exe" serve'
 
 
 def find_ollama_command() -> str | None:
@@ -520,6 +539,14 @@ class LauncherApp(tk.Tk):
             command=self.copy_open_webui_install_command,
         ).pack(side="left", expand=True, fill="x", padx=(4, 0))
 
+        venv_row = ttk.Frame(install_box)
+        venv_row.pack(fill="x", pady=(8, 0))
+        ttk.Button(
+            venv_row,
+            text="Python 3.11 OpenWebUI 환경 설치",
+            command=self.setup_python311_openwebui_environment,
+        ).pack(side="left", expand=True, fill="x")
+
         models_box = ttk.LabelFrame(setup_tab, text="Ollama 모델", padding=12)
         models_box.pack(fill="both", expand=True, pady=(14, 0))
         ttk.Label(models_box, textvariable=self.model_status_var).pack(anchor="w")
@@ -605,6 +632,21 @@ class LauncherApp(tk.Tk):
             start_cmd_window(command, "python pip upgrade")
         except Exception as exc:
             messagebox.showerror(APP_NAME, f"pip upgrade CMD 창을 시작하지 못했습니다.\n\n{exc}")
+
+    def setup_python311_openwebui_environment(self) -> None:
+        command = build_python311_openwebui_setup_command()
+        self.install_command_var.set(r"C:\OpenWebUI\.venv + py -3.11 + pip install open-webui")
+        self.config_data["command"] = build_python311_openwebui_serve_command()
+        save_config(self.config_data)
+        try:
+            start_cmd_window(command, "Python 3.11 OpenWebUI setup")
+            messagebox.showinfo(
+                APP_NAME,
+                "Python 3.11 가상환경 설치 명령을 CMD 창에서 실행했습니다.\n\n"
+                "설치가 끝나면 실행 명령은 C:\\OpenWebUI\\.venv\\Scripts\\open-webui.exe serve 를 사용합니다.",
+            )
+        except Exception as exc:
+            messagebox.showerror(APP_NAME, f"Python 3.11 환경 설치 CMD 창을 시작하지 못했습니다.\n\n{exc}")
 
     def copy_open_webui_install_command(self) -> None:
         command = build_open_webui_install_command()
