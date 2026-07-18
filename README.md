@@ -45,7 +45,7 @@
 
 ### EXE 다운로드
 
-[OpenWebUI-Local-AI-Launcher-Models.exe 다운로드](https://raw.githubusercontent.com/shoutjoy/openwebuiApp/main/dist/OpenWebUI-Local-AI-Launcher-Models.exe)
+[OpenWebUI-Local-AI-Launcher-Models.exe 다운로드](https://github.com/shoutjoy/openwebuiApp/raw/refs/heads/main/dist/OpenWebUI-Local-AI-Launcher-Models.exe)
 
 ### Python으로 실행
 
