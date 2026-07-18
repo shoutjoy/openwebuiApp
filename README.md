@@ -18,10 +18,13 @@
 - `Local환경실행`: PC에 직접 설치된 `open-webui` 실행 파일을 자동으로 찾은 경우 활성화된다.
 - `가상환경 실행`: `C:\OpenWebUI\venv\Scripts\open-webui.exe`가 확인된 경우 활성화된다. `Open WebUI 가상환경 설치 실행`으로 만든 전용 가상환경에서 실행할 때 사용한다.
 - `Local AI Chat`: `http://localhost:8080/` 채팅 화면을 연다.
+- `자동실행`: 체크하면 다음에 앱을 켤 때 Open WebUI 서버를 자동으로 실행한다. 전용 가상환경이 있으면 가상환경 실행을 우선 사용하고, 없으면 Local환경실행을 사용한다.
 - `MDlive`: https://mdlivepro.vercel.app/ 를 연다.
 - `MDpro`: https://mdproviewer.vercel.app/ 를 연다.
 - `서버 중지`: 이 런처가 시작한 Open WebUI 서버를 중지한다.
 - `설정`: 실행 명령, 호스트, 포트, 자동 브라우저 열기 옵션을 변경한다.
+- `오른쪽 클릭 메뉴 등록`: 현재 사용자 계정의 Windows 바탕화면/폴더 오른쪽 클릭 메뉴에 이 앱 실행 항목을 등록한다.
+- `오른쪽 클릭 메뉴 해제`: 등록된 오른쪽 클릭 메뉴 항목을 제거한다.
 
 ## 설치 및 모델 기능
 
@@ -91,7 +94,7 @@ Open WebUI 설치에는 전용 가상환경 버튼을 사용하는 것이 더 �
 
 ### EXE 다운로드
 
-[OpenWebUI-Local-AI-Launcher-Tabbed-v4.exe 다운로드](https://github.com/shoutjoy/openwebuiApp/raw/refs/heads/main/dist/OpenWebUI-Local-AI-Launcher-Tabbed-v4.exe)
+[OpenWebUI-Local-AI-Launcher-Tabbed-v5.exe 다운로드](https://github.com/shoutjoy/openwebuiApp/raw/refs/heads/main/dist/OpenWebUI-Local-AI-Launcher-Tabbed-v5.exe)
 
 ### Python으로 실행
 
@@ -122,6 +125,16 @@ PATH에서 명령을 찾지 못하는 경우 설정 창의 `자동 찾기`를 �
 또는 Python 모듈 방식으로 실행한다.
 
     "C:\경로\python.exe" -m open_webui serve
+
+자동실행 설정은 앱에서 체크하면 즉시 저장된다. 설정 파일은 다음 위치에 저장된다.
+
+    %LOCALAPPDATA%\OpenWebUIChatLauncher\settings.json
+
+오른쪽 클릭 메뉴 등록은 관리자 권한이 필요 없는 현재 사용자 레지스트리 경로를 사용한다.
+
+    HKCU\Software\Classes\DesktopBackground\Shell\OpenWebUILocalAILauncher
+    HKCU\Software\Classes\Directory\Background\shell\OpenWebUILocalAILauncher
+    HKCU\Software\Classes\Directory\shell\OpenWebUILocalAILauncher
 
 ## 주의
 

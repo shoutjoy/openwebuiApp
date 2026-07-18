@@ -22,8 +22,13 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+try:
+    import winreg
+except ImportError:
+    winreg = None
+
 APP_NAME = "Joonghee Park PhD 's OpenWebUI Local AI"
-APP_VERSION = "3.1.0"
+APP_VERSION = "3.1.1"
 
 APP_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "OpenWebUIChatLauncher"
 CONFIG_FILE = APP_DIR / "settings.json"
@@ -36,6 +41,7 @@ DEFAULT_CONFIG = {
     "host": "127.0.0.1",
     "port": 8080,
     "auto_open_browser": True,
+    "auto_start_server": False,
     "startup_timeout_seconds": 180,
     "selected_model": "",
 }
@@ -45,6 +51,13 @@ HUGGING_FACE_MODELS_URL = "https://huggingface.co/models"
 MDLIVE_URL = "https://mdlivepro.vercel.app/"
 MDPRO_URL = "https://mdproviewer.vercel.app/"
 DEFAULT_MODEL_TO_PULL = "llama3.1:8b"
+CONTEXT_MENU_KEY_NAME = "OpenWebUILocalAILauncher"
+CONTEXT_MENU_LABEL = "Joonghee Park PhD's OpenWebUI Local AI 실행"
+CONTEXT_MENU_REGISTRY_KEYS = [
+    rf"Software\Classes\DesktopBackground\Shell\{CONTEXT_MENU_KEY_NAME}",
+    rf"Software\Classes\Directory\Background\shell\{CONTEXT_MENU_KEY_NAME}",
+    rf"Software\Classes\Directory\shell\{CONTEXT_MENU_KEY_NAME}",
+]
 
 POPULAR_OLLAMA_MODELS = [
     "llama3.1:8b",
@@ -242,6 +255,72 @@ def quote_cmd_arg(value: str) -> str:
     return value
 
 
+def get_launcher_command() -> str:
+    if getattr(sys, "frozen", False):
+        return quote_cmd_arg(sys.executable)
+
+    script_path = Path(__file__).resolve()
+    return f"{quote_cmd_arg(sys.executable)} {quote_cmd_arg(str(script_path))}"
+
+
+def get_launcher_icon_path() -> str:
+    if getattr(sys, "frozen", False):
+        return sys.executable
+    return str(Path(__file__).resolve())
+
+
+def registry_tree_exists(subkey: str) -> bool:
+    if winreg is None:
+        return False
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, subkey):
+            return True
+    except OSError:
+        return False
+
+
+def context_menu_is_registered() -> bool:
+    return any(registry_tree_exists(subkey) for subkey in CONTEXT_MENU_REGISTRY_KEYS)
+
+
+def set_context_menu_registry() -> None:
+    if winreg is None:
+        raise RuntimeError("Windows registry is not available.")
+
+    launcher_command = get_launcher_command()
+    icon_path = get_launcher_icon_path()
+    for subkey in CONTEXT_MENU_REGISTRY_KEYS:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, subkey) as key:
+            winreg.SetValueEx(key, "", 0, winreg.REG_SZ, CONTEXT_MENU_LABEL)
+            winreg.SetValueEx(key, "Icon", 0, winreg.REG_SZ, icon_path)
+            winreg.SetValueEx(key, "Position", 0, winreg.REG_SZ, "Top")
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, subkey + r"\command") as command_key:
+            winreg.SetValueEx(command_key, "", 0, winreg.REG_SZ, launcher_command)
+
+
+def delete_registry_tree(root, subkey: str) -> None:
+    if winreg is None:
+        return
+    try:
+        with winreg.OpenKey(root, subkey, 0, winreg.KEY_READ | winreg.KEY_WRITE) as key:
+            while True:
+                try:
+                    child_name = winreg.EnumKey(key, 0)
+                except OSError:
+                    break
+                delete_registry_tree(root, subkey + "\\" + child_name)
+        winreg.DeleteKey(root, subkey)
+    except FileNotFoundError:
+        return
+
+
+def remove_context_menu_registry() -> None:
+    if winreg is None:
+        raise RuntimeError("Windows registry is not available.")
+    for subkey in CONTEXT_MENU_REGISTRY_KEYS:
+        delete_registry_tree(winreg.HKEY_CURRENT_USER, subkey)
+
+
 def model_name_is_safe(model_name: str) -> bool:
     allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-/:")
     return bool(model_name) and all(char in allowed for char in model_name)
@@ -434,13 +513,17 @@ class LauncherApp(tk.Tk):
         self.available_models: list[str] = []
         self.internal_open_webui_command: str | None = None
         self.venv_open_webui_ready = False
+        self.auto_start_attempted = False
 
         self.title(f"{APP_NAME} v{APP_VERSION}")
-        self.geometry("860x720")
+        self.geometry("860x780")
         self.resizable(False, False)
 
         self.status_var = tk.StringVar(value="Open WebUI 상태를 확인하고 있습니다.")
         self.url_var = tk.StringVar()
+        self.auto_start_var = tk.BooleanVar(value=bool(self.config_data.get("auto_start_server")))
+        self.auto_start_status_var = tk.StringVar(value="")
+        self.context_menu_status_var = tk.StringVar(value="")
         selected_model = str(self.config_data.get("selected_model") or DEFAULT_MODEL_TO_PULL)
         self.model_var = tk.StringVar(value=selected_model)
         self.model_status_var = tk.StringVar(value="Ollama에 설치된 모델을 자동으로 찾고 있습니다.")
@@ -450,8 +533,10 @@ class LauncherApp(tk.Tk):
 
         self._build_ui()
         self.update_model_command()
+        self.update_context_menu_status()
         self.after(300, self.refresh_status)
         self.after(700, lambda: self.refresh_ollama_models(show_errors=False))
+        self.after(1200, self.run_auto_start_if_enabled)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def _build_ui(self) -> None:
@@ -531,8 +616,22 @@ class LauncherApp(tk.Tk):
             side="left", expand=True, fill="x", padx=(4, 0)
         )
 
+        option_row = ttk.Frame(run_tab)
+        option_row.pack(fill="x", pady=(10, 0))
+        ttk.Checkbutton(
+            option_row,
+            text="자동실행",
+            variable=self.auto_start_var,
+            command=self.save_auto_start_setting,
+        ).pack(side="left")
+        ttk.Label(
+            option_row,
+            text="앱을 다시 켤 때 Open WebUI 서버를 자동으로 실행합니다.",
+        ).pack(side="left", padx=(8, 0))
+        ttk.Label(option_row, textvariable=self.auto_start_status_var).pack(side="right")
+
         editor_box = ttk.LabelFrame(run_tab, text="AI editor connect", padding=12)
-        editor_box.pack(fill="x", pady=(14, 0))
+        editor_box.pack(fill="x", pady=(12, 0))
         editor_box.columnconfigure(0, weight=1)
         editor_box.columnconfigure(1, weight=1)
 
@@ -547,14 +646,33 @@ class LauncherApp(tk.Tk):
             command=self.open_mdpro,
         ).grid(row=0, column=1, sticky="ew", padx=(4, 0), ipady=4)
 
+        context_box = ttk.LabelFrame(run_tab, text="Windows 오른쪽 클릭 메뉴", padding=12)
+        context_box.pack(fill="x", pady=(12, 0))
+        context_box.columnconfigure(0, weight=1)
+        context_box.columnconfigure(1, weight=1)
+        ttk.Button(
+            context_box,
+            text="오른쪽 클릭 메뉴 등록",
+            command=self.register_context_menu,
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 4), ipady=4)
+        ttk.Button(
+            context_box,
+            text="오른쪽 클릭 메뉴 해제",
+            command=self.unregister_context_menu,
+        ).grid(row=0, column=1, sticky="ew", padx=(4, 0), ipady=4)
+        ttk.Label(context_box, textvariable=self.context_menu_status_var).grid(
+            row=1, column=0, columnspan=2, sticky="w", pady=(8, 0)
+        )
+
         info = ttk.LabelFrame(run_tab, text="동작 방식", padding=12)
-        info.pack(fill="x", pady=(18, 0))
+        info.pack(fill="x", pady=(14, 0))
         ttk.Label(
             info,
             text=(
                 "① Local환경실행은 PC에 직접 설치된 open-webui 명령을 실행합니다.\n"
                 "② 가상환경 실행은 C:\\OpenWebUI\\venv 안의 open-webui.exe를 실행합니다.\n"
-                "③ Local AI Chat 버튼은 http://localhost:8080/ 채팅 화면을 엽니다."
+                "③ 자동실행은 다음 앱 시작 때 가상환경을 우선 사용하고, 없으면 Local환경실행을 사용합니다.\n"
+                "④ Local AI Chat 버튼은 http://localhost:8080/ 채팅 화면을 엽니다."
             ),
             justify="left",
         ).pack(anchor="w")
@@ -875,6 +993,47 @@ class LauncherApp(tk.Tk):
     def open_mdpro(self) -> None:
         webbrowser.open(MDPRO_URL)
 
+    def save_auto_start_setting(self) -> None:
+        enabled = bool(self.auto_start_var.get())
+        self.config_data["auto_start_server"] = enabled
+        save_config(self.config_data)
+        if enabled:
+            self.auto_start_status_var.set("자동실행 저장됨")
+        else:
+            self.auto_start_status_var.set("자동실행 해제됨")
+
+    def update_context_menu_status(self) -> None:
+        if context_menu_is_registered():
+            self.context_menu_status_var.set("등록됨: 바탕화면 또는 폴더에서 마우스 오른쪽 버튼으로 실행할 수 있습니다.")
+        else:
+            self.context_menu_status_var.set("등록 안 됨")
+
+    def register_context_menu(self) -> None:
+        try:
+            set_context_menu_registry()
+        except Exception as exc:
+            messagebox.showerror(APP_NAME, f"오른쪽 클릭 메뉴 등록에 실패했습니다.\n\n{exc}")
+            self.update_context_menu_status()
+            return
+
+        self.update_context_menu_status()
+        messagebox.showinfo(
+            APP_NAME,
+            "Windows 오른쪽 클릭 메뉴에 앱 실행 항목을 등록했습니다.\n\n"
+            "바탕화면 빈 공간 또는 폴더를 마우스 오른쪽 버튼으로 클릭해 실행할 수 있습니다.",
+        )
+
+    def unregister_context_menu(self) -> None:
+        try:
+            remove_context_menu_registry()
+        except Exception as exc:
+            messagebox.showerror(APP_NAME, f"오른쪽 클릭 메뉴 해제에 실패했습니다.\n\n{exc}")
+            self.update_context_menu_status()
+            return
+
+        self.update_context_menu_status()
+        messagebox.showinfo(APP_NAME, "Windows 오른쪽 클릭 메뉴 등록을 해제했습니다.")
+
     def server_url(self) -> str:
         host = self.config_data["host"]
         browser_host = "localhost" if host in {"127.0.0.1", "0.0.0.0"} else host
@@ -920,6 +1079,34 @@ class LauncherApp(tk.Tk):
             self.venv_start_button.configure(
                 state="normal" if self.venv_open_webui_ready else "disabled"
             )
+
+    def run_auto_start_if_enabled(self) -> None:
+        if self.auto_start_attempted:
+            return
+        self.auto_start_attempted = True
+
+        if not self.config_data.get("auto_start_server"):
+            return
+
+        self.refresh_installation_detection()
+        host = self.config_data["host"]
+        check_host = "127.0.0.1" if host == "0.0.0.0" else host
+        port = int(self.config_data["port"])
+        if port_is_open(check_host, port):
+            self.refresh_status()
+            if self.config_data.get("auto_open_browser", True):
+                self.open_browser()
+            return
+
+        if self.venv_open_webui_ready:
+            self.start_venv_chat()
+            return
+
+        if self.internal_open_webui_command:
+            self.start_internal_chat()
+            return
+
+        self.status_var.set("자동실행 켜짐: 실행 가능한 Open WebUI 설치를 찾지 못했습니다.")
 
     def start_internal_chat(self) -> None:
         self.refresh_installation_detection()
