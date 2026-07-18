@@ -26,9 +26,14 @@
 
 `설치 및 모델` 탭에서 다음 기능을 사용할 수 있다.
 
+### 가상환경 & 파이썬
+
 - `Open WebUI 가상환경 설치 실행`: `C:\OpenWebUI` 폴더를 만들고 Python 3.11 우선, 없으면 Python 3.12로 `venv` 가상환경을 만든 뒤, 그 안에서 `python -m pip install open-webui`를 실행한다. 실행 명령은 `"C:\OpenWebUI\venv\Scripts\open-webui.exe" serve`로 저장된다.
 - `python pip upgrade`: 새 CMD 창에서 `python.exe -m pip install --upgrade pip`를 실행한다.
 - `설치 명령 복사`: CMD나 PowerShell에 붙여 넣을 수 있는 설치 명령을 복사한다.
+
+### AI 모델 설치
+
 - 앱 시작 시 `ollama list`를 자동 실행해 PC에 이미 다운로드된 Ollama 모델을 보여준다.
 - `모델 목록 새로고침`: 설치된 모델 목록을 다시 조회한다.
 - `CMD에서 모델 설치`: 입력한 모델명으로 `ollama pull <모델명>`을 실행한다.
@@ -46,7 +51,7 @@
 
 ### EXE 다운로드
 
-[OpenWebUI-Local-AI-Launcher-Models-Pip.exe 다운로드](https://github.com/shoutjoy/openwebuiApp/raw/refs/heads/main/dist/OpenWebUI-Local-AI-Launcher-Models-Pip.exe)
+[OpenWebUI-Local-AI-Launcher-Tabbed-v2.exe 다운로드](https://github.com/shoutjoy/openwebuiApp/raw/refs/heads/main/dist/OpenWebUI-Local-AI-Launcher-Tabbed-v2.exe)
 
 ### Python으로 실행
 

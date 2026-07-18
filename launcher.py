@@ -402,7 +402,7 @@ class LauncherApp(tk.Tk):
         self.available_models: list[str] = []
 
         self.title(f"{APP_NAME} v{APP_VERSION}")
-        self.geometry("820x680")
+        self.geometry("860x720")
         self.resizable(False, False)
 
         self.status_var = tk.StringVar(value="Open WebUI 상태를 확인하고 있습니다.")
@@ -410,7 +410,7 @@ class LauncherApp(tk.Tk):
         selected_model = str(self.config_data.get("selected_model") or DEFAULT_MODEL_TO_PULL)
         self.model_var = tk.StringVar(value=selected_model)
         self.model_status_var = tk.StringVar(value="Ollama에 설치된 모델을 자동으로 찾고 있습니다.")
-        self.install_command_var = tk.StringVar(value=build_open_webui_install_command())
+        self.install_command_var = tk.StringVar(value="Open WebUI 전용 가상환경 설치 명령")
         self.model_command_var = tk.StringVar()
         self.model_var.trace_add("write", lambda *_: self.update_model_command())
 
@@ -516,19 +516,33 @@ class LauncherApp(tk.Tk):
             justify="left",
         ).pack(anchor="w")
 
-        install_box = ttk.LabelFrame(setup_tab, text="처음 사용자 설치", padding=12)
-        install_box.pack(fill="x")
+        setup_notebook = ttk.Notebook(setup_tab)
+        setup_notebook.pack(fill="both", expand=True)
+
+        python_tab = ttk.Frame(setup_notebook, padding=12)
+        model_tab = ttk.Frame(setup_notebook, padding=12)
+        setup_notebook.add(python_tab, text="가상환경 & 파이썬")
+        setup_notebook.add(model_tab, text="AI 모델 설치")
+
+        install_box = ttk.LabelFrame(python_tab, text="Open WebUI 전용 가상환경", padding=12)
+        install_box.pack(fill="both", expand=True)
         ttk.Label(
             install_box,
-            text="Open WebUI가 설치되어 있지 않으면 아래 명령을 실행합니다.",
+            text="Python 3.11을 우선 사용하고, 없으면 Python 3.12로 C:\\OpenWebUI\\venv 가상환경을 만든 뒤 그 안에 Open WebUI를 설치합니다.",
+            wraplength=720,
             justify="left",
         ).pack(anchor="w")
-        install_entry = ttk.Entry(
+
+        self.install_command_text = tk.Text(
             install_box,
-            textvariable=self.install_command_var,
-            state="readonly",
+            height=11,
+            wrap="none",
+            font=("Consolas", 10),
         )
-        install_entry.pack(fill="x", pady=(8, 8))
+        self.install_command_text.pack(fill="both", expand=True, pady=(8, 8))
+        self.install_command_text.insert("1.0", self.format_install_command_for_display())
+        self.install_command_text.configure(state="disabled")
+
         install_row = ttk.Frame(install_box)
         install_row.pack(fill="x")
         ttk.Button(
@@ -547,8 +561,8 @@ class LauncherApp(tk.Tk):
             command=self.copy_open_webui_install_command,
         ).pack(side="left", expand=True, fill="x", padx=(4, 0))
 
-        models_box = ttk.LabelFrame(setup_tab, text="Ollama 모델", padding=12)
-        models_box.pack(fill="both", expand=True, pady=(14, 0))
+        models_box = ttk.LabelFrame(model_tab, text="Ollama 모델", padding=12)
+        models_box.pack(fill="both", expand=True)
         ttk.Label(models_box, textvariable=self.model_status_var).pack(anchor="w")
 
         body = ttk.Frame(models_box)
@@ -617,6 +631,23 @@ class LauncherApp(tk.Tk):
         self.clipboard_append(text)
         self.update_idletasks()
         messagebox.showinfo(APP_NAME, success_message)
+
+    def format_install_command_for_display(self) -> str:
+        return "\n".join(
+            [
+                "cd /d C:\\",
+                "if not exist OpenWebUI mkdir OpenWebUI",
+                "cd /d C:\\OpenWebUI",
+                "py -3.11 우선 확인",
+                "py -3.11이 없으면 py -3.12 확인",
+                "py -3.11 또는 py -3.12 -m venv venv",
+                "call venv\\Scripts\\activate.bat",
+                "python --version",
+                "python -m pip install --upgrade pip setuptools wheel",
+                "python -m pip install open-webui",
+                "python -m pip show open-webui",
+            ]
+        )
 
     def install_open_webui(self) -> None:
         command = build_open_webui_install_command()
