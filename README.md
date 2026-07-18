@@ -100,6 +100,36 @@ Open WebUI 설치에는 전용 가상환경 버튼을 사용하는 것이 더 �
 
 `run_launcher.bat`를 더블클릭한다.
 
+### Flask 웹앱으로 실행
+
+브라우저 UI로 사용하려면 `webapp_flask` 폴더의 Flask 서버를 실행한다.
+
+    cd /d C:\CusorApps\openWebUi_app\OpenWebUI_Chat_Launcher_v3\OpenWebUI_Chat_Launcher\webapp_flask
+    python -m pip install -r requirements.txt
+    python app.py
+
+또는 `webapp_flask\run_flask_webapp.bat`를 더블클릭한다. 실행 후 브라우저에서 다음 주소를 연다.
+
+    http://127.0.0.1:8000
+
+Flask 웹앱은 기존 tkinter 런처의 주요 기능을 브라우저에서 사용할 수 있게 옮긴 버전이다.
+
+- Open WebUI 실행 상태 확인, `Local환경실행`, `가상환경 실행`, 자동 실행, 서버 중지
+- 실행 명령, 호스트, 포트, 자동 브라우저 열기, 자동 시작, 선택 모델 설정 저장
+- `C:\OpenWebUI\venv` 설치 확인, Open WebUI 가상환경 설치 CMD 실행, `python pip upgrade`
+- Ollama 모델 목록 조회, 선택 모델 저장, `ollama pull <모델명>` CMD 실행
+- Windows 오른쪽 클릭 메뉴 등록/해제
+- OpenWebUI, MDlive, MDpro 바로 열기
+- OpenWebUI API 테스트 UI
+
+OpenWebUI API 테스트의 기본 호출 주소는 현재 설정된 Open WebUI 주소에 `/api/chat`을 붙여 사용한다. 다른 API 주소나 토큰이 필요하면 Flask 실행 전에 환경변수를 지정한다.
+
+    set OPENWEBUI_CHAT_API_URL=http://localhost:8080/api/chat
+    set OPENWEBUI_API_TOKEN=your_token_here
+    python app.py
+
+추후 다른 에디터 앱과 연동하려면 `webapp_flask\services\integrations.py`의 `DEFAULT_INTEGRATIONS`에 항목을 추가한다. 자세한 내용은 `webapp_flask\README.md`를 참고한다.
+
 ### EXE 생성
 
 Windows PC에서 `build_windows_exe.bat`를 더블클릭한다.

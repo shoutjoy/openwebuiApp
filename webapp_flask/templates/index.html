@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenWebUI Local AI Web Launcher</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">Local Flask Web Launcher</p>
+      <h1>OpenWebUI Local AI</h1>
+    </div>
+    <div class="status-pill" id="serverStatus">상태 확인 중</div>
+  </header>
+
+  <main class="layout">
+    <section class="panel control-panel">
+      <div class="section-head">
+        <div>
+          <h2>실행</h2>
+          <p id="serverUrl">-</p>
+        </div>
+        <button class="icon-button" id="refreshBtn" title="새로고침">⟳</button>
+      </div>
+
+      <div class="button-grid">
+        <button id="startAutoBtn">자동 실행</button>
+        <button id="startLocalBtn">Local환경실행</button>
+        <button id="startVenvBtn">가상환경 실행</button>
+        <button id="openChatBtn">Local AI Chat</button>
+        <button class="danger" id="stopBtn">서버 중지</button>
+      </div>
+
+      <div class="event-log" id="lastEvent">-</div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <h2>설정</h2>
+          <p>실행 명령, 포트, 자동 실행 옵션</p>
+        </div>
+        <button id="saveConfigBtn">저장</button>
+      </div>
+
+      <form class="settings-grid" id="settingsForm">
+        <label>
+          <span>Local 실행 명령</span>
+          <input name="command" autocomplete="off">
+        </label>
+        <label>
+          <span>가상환경 실행 명령</span>
+          <input name="venv_command" autocomplete="off">
+        </label>
+        <label>
+          <span>호스트</span>
+          <input name="host" autocomplete="off">
+        </label>
+        <label>
+          <span>포트</span>
+          <input name="port" type="number" min="1" max="65535">
+        </label>
+        <label>
+          <span>대기 시간(초)</span>
+          <input name="startup_timeout_seconds" type="number" min="5">
+        </label>
+        <label>
+          <span>선택 모델</span>
+          <input name="selected_model" autocomplete="off">
+        </label>
+        <label class="check-row">
+          <input name="auto_open_browser" type="checkbox">
+          <span>서버 준비 후 브라우저 자동 열기</span>
+        </label>
+        <label class="check-row">
+          <input name="auto_start_server" type="checkbox">
+          <span>웹앱 시작 시 OpenWebUI 자동 실행</span>
+        </label>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <h2>설치 및 가상환경</h2>
+          <p>C:\OpenWebUI\venv 기반 설치 확인</p>
+        </div>
+        <button id="checkVenvBtn">설치 확인</button>
+      </div>
+
+      <div class="button-grid">
+        <button id="installOpenWebuiBtn">Open WebUI 가상환경 설치 실행</button>
+        <button id="pipUpgradeBtn">python pip upgrade</button>
+        <button id="copyInstallCommandBtn">설치 명령 표시</button>
+      </div>
+      <pre class="command-box" id="installCommand"></pre>
+      <div class="check-list" id="venvChecks"></div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <h2>Ollama 모델</h2>
+          <p id="modelStatus">모델 목록을 불러오지 않았습니다.</p>
+        </div>
+        <button id="refreshModelsBtn">새로고침</button>
+      </div>
+
+      <div class="model-layout">
+        <div class="model-list" id="modelList"></div>
+        <div class="model-actions">
+          <label>
+            <span>모델명</span>
+            <input id="modelInput" autocomplete="off" placeholder="llama3.1:8b">
+          </label>
+          <pre class="command-box small" id="modelCommand"></pre>
+          <button id="saveModelBtn">선택 모델 저장</button>
+          <button id="installModelBtn">CMD에서 모델 설치</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <h2>에디터 연동</h2>
+          <p>추가 에디터 앱은 서비스 레지스트리에 항목을 더하면 됩니다.</p>
+        </div>
+      </div>
+      <div class="integration-grid" id="integrations"></div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <h2>OpenWebUI API 테스트</h2>
+          <p>환경변수 OPENWEBUI_CHAT_API_URL로 API 주소를 바꿀 수 있습니다.</p>
+        </div>
+      </div>
+      <textarea id="chatMessage" rows="5" placeholder="메시지를 입력하세요"></textarea>
+      <div class="button-row">
+        <button id="sendChatBtn">전송</button>
+      </div>
+      <pre class="reply-box" id="chatReply"></pre>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <h2>Windows 오른쪽 클릭 메뉴</h2>
+          <p id="contextMenuStatus">확인 중</p>
+        </div>
+      </div>
+      <div class="button-grid">
+        <button id="registerContextBtn">오른쪽 클릭 메뉴 등록</button>
+        <button id="unregisterContextBtn">오른쪽 클릭 메뉴 해제</button>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast"></div>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
