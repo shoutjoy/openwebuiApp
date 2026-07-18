@@ -26,9 +26,8 @@
 
 `설치 및 모델` 탭에서 다음 기능을 사용할 수 있다.
 
-- `Open WebUI 설치 실행`: 새 CMD 창에서 `pip install open-webui`를 실행한다.
+- `Open WebUI 가상환경 설치 실행`: `C:\OpenWebUI` 폴더를 만들고 Python 3.11 우선, 없으면 Python 3.12로 `venv` 가상환경을 만든 뒤, 그 안에서 `python -m pip install open-webui`를 실행한다. 실행 명령은 `"C:\OpenWebUI\venv\Scripts\open-webui.exe" serve`로 저장된다.
 - `python pip upgrade`: 새 CMD 창에서 `python.exe -m pip install --upgrade pip`를 실행한다.
-- `Python 3.11 OpenWebUI 환경 설치`: `C:\OpenWebUI` 폴더를 만들고 `py -3.11 -m venv .venv`로 가상환경을 만든 뒤, 그 안에서 pip upgrade와 `pip install open-webui`를 실행한다. 실행 명령은 `"C:\OpenWebUI\.venv\Scripts\open-webui.exe" serve`로 저장된다.
 - `설치 명령 복사`: CMD나 PowerShell에 붙여 넣을 수 있는 설치 명령을 복사한다.
 - 앱 시작 시 `ollama list`를 자동 실행해 PC에 이미 다운로드된 Ollama 모델을 보여준다.
 - `모델 목록 새로고침`: 설치된 모델 목록을 다시 조회한다.
