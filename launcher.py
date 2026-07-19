@@ -200,6 +200,24 @@ def build_python311_openwebui_serve_command() -> str:
     return r"cd /d C:\OpenWebUI && call venv\Scripts\activate.bat && open-webui serve --port 8080"
 
 
+def flask_webapp_batch_path() -> Path:
+    if getattr(sys, "frozen", False):
+        candidates = [
+            Path(sys.executable).resolve().parent.parent / "webapp_flask" / "run_flask_webapp.bat",
+            Path(sys.executable).resolve().parent / "webapp_flask" / "run_flask_webapp.bat",
+        ]
+    else:
+        candidates = [Path(__file__).resolve().parent / "webapp_flask" / "run_flask_webapp.bat"]
+
+    candidates.append(
+        Path(r"C:\CusorApps\openWebUi_app\OpenWebUI_Chat_Launcher_v3\OpenWebUI_Chat_Launcher\webapp_flask\run_flask_webapp.bat")
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return candidates[0]
+
+
 def command_with_openwebui_port(command: str, port: int) -> str:
     command = str(command or "").strip()
     if not command:
@@ -774,6 +792,7 @@ class LauncherApp(tk.Tk):
         editor_box.pack(fill="x", pady=(12, 0))
         editor_box.columnconfigure(0, weight=1)
         editor_box.columnconfigure(1, weight=1)
+        editor_box.columnconfigure(2, weight=1)
 
         ttk.Button(
             editor_box,
@@ -784,7 +803,12 @@ class LauncherApp(tk.Tk):
             editor_box,
             text="MDpro",
             command=self.open_mdpro,
-        ).grid(row=0, column=1, sticky="ew", padx=(4, 0), ipady=4)
+        ).grid(row=0, column=1, sticky="ew", padx=4, ipady=4)
+        ttk.Button(
+            editor_box,
+            text="Flask 웹앱 실행",
+            command=self.start_flask_webapp,
+        ).grid(row=0, column=2, sticky="ew", padx=(4, 0), ipady=4)
 
         context_box = ttk.LabelFrame(run_tab, text="Windows 오른쪽 클릭 메뉴", padding=12)
         context_box.pack(fill="x", pady=(12, 0))
@@ -1132,6 +1156,21 @@ class LauncherApp(tk.Tk):
 
     def open_mdpro(self) -> None:
         webbrowser.open(MDPRO_URL)
+
+    def start_flask_webapp(self) -> None:
+        batch_path = flask_webapp_batch_path()
+        if not batch_path.is_file():
+            messagebox.showerror(
+                APP_NAME,
+                "Flask 웹앱 실행 파일을 찾지 못했습니다.\n\n"
+                f"확인 경로:\n{batch_path}",
+            )
+            return
+        command = f'call {quote_cmd_arg(str(batch_path))}'
+        try:
+            start_cmd_window(command, "OpenWebUI Flask Web App")
+        except Exception as exc:
+            messagebox.showerror(APP_NAME, f"Flask 웹앱 CMD 창을 시작하지 못했습니다.\n\n{exc}")
 
     def save_auto_start_setting(self) -> None:
         enabled = bool(self.auto_start_var.get())

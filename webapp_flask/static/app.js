@@ -139,6 +139,12 @@ async function stopServer() {
 }
 
 async function openChat() {
+  if (state.status?.deploy_mode) {
+    const url = state.status.server_url || "http://localhost:8080/";
+    window.open(url, "_blank", "noopener,noreferrer");
+    toast(`${url} 을 새 탭에서 엽니다. 로컬 PC에서 Open WebUI가 실행 중이어야 합니다.`);
+    return;
+  }
   const data = await api("/api/server/open", { method: "POST" });
   toast(data.message || data.url);
 }
