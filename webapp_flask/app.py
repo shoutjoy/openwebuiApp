@@ -153,6 +153,13 @@ def create_app(auto_start: bool = False) -> Flask:
             )
         )
 
+    @app.get("/<path:page_path>")
+    def page_fallback(page_path: str):
+        first_segment = page_path.split("/", 1)[0]
+        if first_segment in {"api", "downloads", "static"}:
+            return jsonify({"ok": False, "message": "Not Found"}), 404
+        return render_template("index.html")
+
     @app.errorhandler(ValueError)
     def handle_value_error(exc: ValueError):
         return jsonify({"ok": False, "message": str(exc)}), 400

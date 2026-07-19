@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: openwebui-academic-tool
+    name: openwebuichat
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
