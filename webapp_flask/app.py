@@ -2,10 +2,15 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_from_directory
 
 from services.launcher_service import LauncherWebService
+
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+DOWNLOAD_EXE_NAME = "OpenWebUI-Local-AI-Launcher-Tabbed-v6.exe"
 
 
 def create_app(auto_start: bool = False) -> Flask:
@@ -20,6 +25,14 @@ def create_app(auto_start: bool = False) -> Flask:
     def index():
         return render_template("index.html")
 
+    @app.get(f"/downloads/{DOWNLOAD_EXE_NAME}")
+    def download_windows_launcher():
+        dist_dir = ROOT_DIR / "dist"
+        exe_path = dist_dir / DOWNLOAD_EXE_NAME
+        if not exe_path.is_file():
+            return jsonify({"ok": False, "message": "다운로드 파일을 찾지 못했습니다."}), 404
+        return send_from_directory(dist_dir, DOWNLOAD_EXE_NAME, as_attachment=True)
+
     @app.get("/api/status")
     def status():
         return jsonify(service.get_status())
@@ -27,6 +40,10 @@ def create_app(auto_start: bool = False) -> Flask:
     @app.get("/api/config")
     def get_config():
         return jsonify(service.get_config())
+
+    @app.post("/api/runtime/detect")
+    def detect_runtime():
+        return jsonify(service.detect_runtime())
 
     @app.post("/api/config")
     def update_config():
@@ -98,6 +115,14 @@ def create_app(auto_start: bool = False) -> Flask:
     def integrations():
         return jsonify(service.list_integrations())
 
+    @app.get("/api/citation-guard/function")
+    def citation_guard_function():
+        return jsonify(service.get_citation_guard_function())
+
+    @app.get("/api/academic-search/tool")
+    def academic_search_tool():
+        return jsonify(service.get_academic_search_tool())
+
     @app.post("/api/integrations/open")
     def open_integration():
         payload = request.get_json(silent=True) or {}
@@ -107,6 +132,26 @@ def create_app(auto_start: bool = False) -> Flask:
     def openwebui_chat():
         payload = request.get_json(silent=True) or {}
         return jsonify(service.ask_openwebui(str(payload.get("message") or "")))
+
+    @app.post("/api/academic-rag/answer")
+    def academic_rag_answer():
+        payload = request.get_json(silent=True) or {}
+        return jsonify(
+            service.ask_academic_rag(
+                str(payload.get("question") or ""),
+                int(payload.get("max_results") or 8),
+            )
+        )
+
+    @app.post("/api/academic-rag/search")
+    def academic_rag_search():
+        payload = request.get_json(silent=True) or {}
+        return jsonify(
+            service.search_academic_sources(
+                str(payload.get("query") or ""),
+                int(payload.get("max_results") or 10),
+            )
+        )
 
     @app.errorhandler(ValueError)
     def handle_value_error(exc: ValueError):
@@ -124,8 +169,8 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    host = os.environ.get("FLASK_HOST", "127.0.0.1")
-    port = int(os.environ.get("FLASK_PORT", "8000"))
+    host = os.environ.get("FLASK_HOST", os.environ.get("HOST", "127.0.0.1"))
+    port = int(os.environ.get("FLASK_PORT", os.environ.get("PORT", "8000")))
     debug = os.environ.get("FLASK_DEBUG", "").lower() in {"1", "true", "yes", "on"}
     app = create_app(auto_start=True)
     app.run(host=host, port=port, debug=debug, use_reloader=debug)

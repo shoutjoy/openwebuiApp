@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -19,8 +20,29 @@ import threading
 import time
 import webbrowser
 from pathlib import Path
-import tkinter as tk
-from tkinter import messagebox, ttk
+
+try:
+    import tkinter as tk
+    from tkinter import messagebox, ttk
+except ImportError:
+    class _MissingTkModule:
+        class Tk:
+            pass
+
+        class Toplevel:
+            pass
+
+        class Event:
+            pass
+
+        END = "end"
+
+        def __getattr__(self, name):
+            raise RuntimeError("tkinter is not available in this Python environment.")
+
+    tk = _MissingTkModule()
+    messagebox = _MissingTkModule()
+    ttk = _MissingTkModule()
 
 try:
     import winreg
@@ -37,7 +59,9 @@ CREATE_NEW_CONSOLE = 0x00000010 if os.name == "nt" else 0
 
 DEFAULT_CONFIG = {
     "command": "open-webui serve",
-    "venv_command": r"cd /d C:\OpenWebUI && call venv\Scripts\activate.bat && open-webui serve",
+    "venv_command": r"cd /d C:\OpenWebUI && call venv\Scripts\activate.bat && open-webui serve --port 8080",
+    "python_path": "",
+    "open_webui_path": "",
     "host": "127.0.0.1",
     "port": 8080,
     "auto_open_browser": True,
@@ -109,6 +133,16 @@ def port_is_open(host: str, port: int, timeout: float = 0.5) -> bool:
         return False
 
 
+def port_can_bind(host: str, port: int) -> bool:
+    bind_host = "0.0.0.0" if host in {"", "0.0.0.0", "127.0.0.1", "localhost"} else host
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind((bind_host, int(port)))
+        return True
+    except OSError:
+        return False
+
+
 def start_cmd_window(command: str, title: str) -> subprocess.Popen:
     cmd_line = f'title {title} && echo [{APP_NAME}] {title} && {command}'
     return subprocess.Popen(
@@ -163,7 +197,21 @@ def build_python311_openwebui_setup_command() -> str:
 
 
 def build_python311_openwebui_serve_command() -> str:
-    return r"cd /d C:\OpenWebUI && call venv\Scripts\activate.bat && open-webui serve"
+    return r"cd /d C:\OpenWebUI && call venv\Scripts\activate.bat && open-webui serve --port 8080"
+
+
+def command_with_openwebui_port(command: str, port: int) -> str:
+    command = str(command or "").strip()
+    if not command:
+        return command
+    if re.search(r"(^|\s)--port\s+\d+", command):
+        return re.sub(r"(^|\s)--port\s+\d+", rf"\1--port {int(port)}", command, count=1)
+    if re.search(r"(^|\s)--port=\d+", command):
+        return re.sub(r"(^|\s)--port=\d+", rf"\1--port={int(port)}", command, count=1)
+    lowered = command.lower()
+    if " serve" in lowered and ("open-webui" in lowered or "open_webui" in lowered):
+        return f"{command} --port {int(port)}"
+    return command
 
 
 def openwebui_venv_paths() -> dict[str, Path]:
@@ -368,6 +416,93 @@ def find_open_webui_command() -> str | None:
             return str(candidate)
 
     return None
+
+
+def find_python_executable(open_webui_command: str | None = None) -> str | None:
+    """Open WebUI 실행 파일 또는 일반 설치 위치에서 python.exe를 찾는다."""
+    if open_webui_command:
+        open_webui_path = Path(open_webui_command)
+        scripts_dir = open_webui_path.parent
+        candidates = [
+            scripts_dir.parent / "python.exe",
+            scripts_dir.parent / "pythonw.exe",
+        ]
+        for candidate in candidates:
+            if candidate.is_file():
+                return str(candidate)
+
+    exe_name = Path(sys.executable).name.lower()
+    if exe_name.startswith("python") and Path(sys.executable).is_file():
+        return str(Path(sys.executable))
+
+    found = shutil.which("python")
+    if found:
+        return found
+
+    candidates: list[Path] = []
+    local_app_data = Path(os.environ.get("LOCALAPPDATA", ""))
+    py_root = local_app_data / "Programs" / "Python"
+    if py_root.exists():
+        for folder in sorted(py_root.glob("Python*"), reverse=True):
+            candidates.append(folder / "python.exe")
+
+    for root_env in ("PROGRAMFILES", "ProgramW6432", "PROGRAMFILES(X86)"):
+        root = Path(os.environ.get(root_env, ""))
+        if root.exists():
+            candidates.extend(sorted((root / "Python").glob("Python*/python.exe"), reverse=True))
+
+    if winreg is not None:
+        for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            try:
+                with winreg.OpenKey(hive, r"Software\Python\PythonCore") as root_key:
+                    index = 0
+                    while True:
+                        try:
+                            version = winreg.EnumKey(root_key, index)
+                        except OSError:
+                            break
+                        index += 1
+                        try:
+                            with winreg.OpenKey(root_key, version + r"\InstallPath") as install_key:
+                                install_path, _ = winreg.QueryValueEx(install_key, "")
+                                candidates.append(Path(str(install_path)) / "python.exe")
+                        except OSError:
+                            continue
+            except OSError:
+                continue
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+
+    return None
+
+
+def detect_openwebui_runtime(port: int = 8080) -> dict[str, str]:
+    open_webui_path = find_open_webui_command() or ""
+    python_path = find_python_executable(open_webui_path) or ""
+    command = ""
+    if open_webui_path:
+        command = command_with_openwebui_port(f"{quote_cmd_arg(open_webui_path)} serve", int(port))
+    return {
+        "python_path": python_path,
+        "open_webui_path": open_webui_path,
+        "command": command,
+    }
+
+
+def update_config_with_detected_runtime(config: dict, save: bool = False) -> dict:
+    updated = dict(config)
+    port = int(updated.get("port") or DEFAULT_CONFIG["port"])
+    detected = detect_openwebui_runtime(port)
+    if detected["python_path"]:
+        updated["python_path"] = detected["python_path"]
+    if detected["open_webui_path"]:
+        updated["open_webui_path"] = detected["open_webui_path"]
+        updated["command"] = detected["command"]
+    if save:
+        save_config(updated)
+    return updated
 
 
 class SettingsDialog(tk.Toplevel):
@@ -1045,10 +1180,9 @@ class LauncherApp(tk.Tk):
         return f"http://{browser_host}:{self.config_data['port']}/"
 
     def refresh_installation_detection(self) -> None:
-        found = find_open_webui_command()
+        self.config_data = update_config_with_detected_runtime(self.config_data, save=True)
+        found = self.config_data.get("open_webui_path") or find_open_webui_command()
         self.internal_open_webui_command = found
-        if found:
-            self.config_data["command"] = f'{quote_cmd_arg(found)} serve'
 
         self.venv_open_webui_ready = openwebui_venv_is_installed()
         if self.venv_open_webui_ready:
@@ -1122,7 +1256,10 @@ class LauncherApp(tk.Tk):
                 "`Open WebUI 가상환경 설치 실행` 후 `가상환경 실행`을 사용하거나, 설정에서 직접 실행 명령을 지정하십시오.",
             )
             return
-        command = f"{quote_cmd_arg(self.internal_open_webui_command)} serve"
+        command = command_with_openwebui_port(
+            f"{quote_cmd_arg(self.internal_open_webui_command)} serve",
+            int(self.config_data.get("port") or DEFAULT_CONFIG["port"]),
+        )
         if not command:
             messagebox.showwarning(APP_NAME, "Local 환경 실행 명령을 찾지 못했습니다.")
             return
@@ -1141,6 +1278,10 @@ class LauncherApp(tk.Tk):
             self.config_data.get("venv_command")
             or build_python311_openwebui_serve_command()
         ).strip()
+        command = command_with_openwebui_port(
+            command,
+            int(self.config_data.get("port") or DEFAULT_CONFIG["port"]),
+        )
         if not command:
             messagebox.showwarning(APP_NAME, "가상환경 실행 명령을 찾지 못했습니다.")
             return
@@ -1158,6 +1299,14 @@ class LauncherApp(tk.Tk):
         if port_is_open(check_host, port):
             self.refresh_status()
             self.status_var.set("Open WebUI 서버가 이미 실행 중입니다.")
+            return
+        if not port_can_bind(host, port):
+            self.refresh_status()
+            messagebox.showwarning(
+                APP_NAME,
+                f"포트 {port}를 다른 프로그램이 사용 중이어서 Open WebUI를 시작하지 않았습니다.\n\n"
+                "이미 열린 Open WebUI/CMD/브라우저 탭을 닫거나, 설정에서 다른 포트를 사용하십시오.",
+            )
             return
 
         if self.is_starting:

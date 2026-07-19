@@ -1,0 +1,12 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# PyInstaller intermediate files
+build/
+*.spec
+
+# Keep only the current downloadable EXE in dist.
+dist/*
+!dist/
+!dist/OpenWebUI-Local-AI-Launcher-Tabbed-v6.exe

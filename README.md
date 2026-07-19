@@ -118,15 +118,89 @@ Flask 웹앱은 기존 tkinter 런처의 주요 기능을 브라우저에서 사
 - 실행 명령, 호스트, 포트, 자동 브라우저 열기, 자동 시작, 선택 모델 설정 저장
 - `C:\OpenWebUI\venv` 설치 확인, Open WebUI 가상환경 설치 CMD 실행, `python pip upgrade`
 - Ollama 모델 목록 조회, 선택 모델 저장, `ollama pull <모델명>` CMD 실행
+
+### Render 배포
+
+Render에서는 Windows PC 제어 기능을 사용할 수 없으므로, 배포 모드는 학술 검색 Tool 코드 제공과 외부 학술 DB 검색 기능 중심으로 동작한다.
+
+루트에 Render용 파일을 둔다.
+
+    app.py
+    requirements.txt
+    render.yaml
+    webapp_flask/
+    openwebui_tools/
+    openwebui_functions/
+
+Render Dashboard에서 수동으로 만들 때는 다음 값을 사용한다.
+
+    Language: Python 3
+    Build Command: pip install -r requirements.txt
+    Start Command: gunicorn app:app
+
+`render.yaml`을 사용하는 Blueprint 배포도 가능하다. 이때 `OPENWEBUI_LAUNCHER_DEPLOY_MODE=1`이 자동 설정되어 로컬 Open WebUI 실행, CMD 실행, Windows 오른쪽 클릭 메뉴 등록 같은 기능은 안내 메시지만 반환한다.
 - Windows 오른쪽 클릭 메뉴 등록/해제
 - OpenWebUI, MDlive, MDpro 바로 열기
 - OpenWebUI API 테스트 UI
+- 학술 인용 가드 Function 코드 확인/복사
 
 OpenWebUI API 테스트의 기본 호출 주소는 현재 설정된 Open WebUI 주소에 `/api/chat`을 붙여 사용한다. 다른 API 주소나 토큰이 필요하면 Flask 실행 전에 환경변수를 지정한다.
 
     set OPENWEBUI_CHAT_API_URL=http://localhost:8080/api/chat
     set OPENWEBUI_API_TOKEN=your_token_here
     python app.py
+
+## Open WebUI 채팅용 학술 검색 Tool
+
+`openwebui_tools\academic_verified_search_tool.py`는 Open WebUI의 Workspace Tool로 가져가서 사용할 수 있는 학술 검색 도구이다. 이 방식은 Open WebUI 채팅 입력창의 `+` 메뉴에서 켤 수 있어 별도 Flask 패널보다 실제 채팅 흐름에 더 잘 맞는다.
+
+동작 방식:
+
+1. 사용자가 Open WebUI 채팅 하단 `+` 메뉴에서 `Academic Verified Search` Tool을 켠다.
+2. 논문, 연구, 인용, 참고문헌, DOI 같은 질문을 하면 모델이 Tool을 호출할 수 있다.
+3. Tool은 Crossref, OpenAlex, Semantic Scholar, PubMed, arXiv에서 실제 메타데이터를 검색한다.
+4. Tool은 `[C1]`, `[C2]` 형식의 검색 결과, APA 참고문헌, JSON 원본을 반환한다.
+5. 모델은 Tool 반환값 밖의 참고문헌을 만들면 안 된다.
+
+Open WebUI에 적용하는 순서:
+
+1. Flask 웹앱의 `Open WebUI 채팅용 학술 검색 Tool` 패널에서 `Tool 보기`를 누른 뒤 `Tool 코드 복사`를 누른다.
+2. Open WebUI에서 `Workspace > Tools`로 이동한다.
+3. Create를 누르고 ID는 `academic_verified_search`, 이름은 `Academic Verified Search`로 입력한다.
+4. 복사한 코드를 붙여넣고 저장한다.
+5. 채팅 입력창 왼쪽 `+` 버튼을 누르고 Tools 목록에서 `Academic Verified Search`를 켠다.
+6. 매번 켜기 싫으면 `Workspace > Models > 해당 모델 편집 > Tools`에서 이 Tool을 체크한다.
+
+주의:
+
+- Tool Calling은 Open WebUI의 Native Mode가 권장된다.
+- 작은 로컬 모델은 Tool 호출 자체를 놓칠 수 있다. 이 경우 질문에 `Academic Verified Search 도구를 사용해서`라고 명시한다.
+- Google Scholar는 공식 공개 API가 없어 자동화에는 기본 포함하지 않았다.
+
+## 학술 인용 가드 Filter
+
+`openwebui_functions\academic_citation_guard_filter.py`는 Open WebUI의 Filter Function으로 가져가서 사용할 수 있는 학술 인용 방지 플러그인 코드이다.
+
+동작 방식:
+
+1. 사용자가 논문, 연구, 인용, 참고문헌, DOI 같은 학술 질문을 하면 Semantic Scholar, arXiv, Crossref, OpenAlex에서 실제 메타데이터 후보를 검색한다.
+2. 후보를 `[C1]`, `[C2]` 형식의 검증 출처 목록으로 모델 입력에 주입한다.
+3. 모델에게 후보 목록 밖의 저자, 연도, DOI, 학술지명, 참고문헌을 생성하지 말라고 지시한다.
+4. 답변에 후보 밖 DOI나 참고문헌 형식이 있으면 답변 끝에 검증 경고를 붙인다.
+
+Open WebUI에 적용하는 순서:
+
+1. Flask 웹앱의 `학술 인용 가드` 패널에서 `Function 보기`를 누른 뒤 `Function 코드 복사`를 누른다.
+2. Open WebUI에서 Admin Panel 또는 Workspace의 Functions 화면으로 이동한다.
+3. Create를 누르고 ID는 `academic_citation_guard`, 이름은 `Academic Citation Guard`로 입력한다.
+4. 복사한 코드를 붙여넣고 저장한다. 코드에 `class Filter`가 있어 Filter Function으로 자동 인식된다.
+5. Active를 켠다. 모든 모델에 적용하려면 Global을 켜고, 특정 모델만 적용하려면 Workspace > Models > 해당 모델 > Filters에서 선택한 뒤 Default Filters에도 추가한다.
+
+주의:
+
+- Google Scholar는 공식 공개 API가 없어 자동화에는 Semantic Scholar/arXiv/Crossref/OpenAlex가 더 안정적이다.
+- 한국어 주제어만으로는 외부 메타데이터 검색 결과가 부족할 수 있다. 필요한 경우 영어 논문명, 핵심 키워드, DOI 일부를 함께 입력한다.
+- 이 기능은 가짜 인용을 줄이는 장치이며, 최종 논문 제출 전에는 DOI 원문, Semantic Scholar, arXiv, Crossref, PubMed, OpenAlex에서 직접 재확인해야 한다.
 
 추후 다른 에디터 앱과 연동하려면 `webapp_flask\services\integrations.py`의 `DEFAULT_INTEGRATIONS`에 항목을 추가한다. 자세한 내용은 `webapp_flask\README.md`를 참고한다.
 
