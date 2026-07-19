@@ -662,12 +662,12 @@ class LauncherWebService:
 
     def _status_text(self, running: bool) -> str:
         if self._deploy_mode:
-            return "Render 배포 모드입니다. 로컬 Open WebUI 실행 기능은 비활성화되고 학술 검색/Tool 코드 제공 기능만 사용합니다."
+            return "비활성화"
         if running:
-            return "Open WebUI가 실행 중입니다."
+            return "활성화"
         if self._is_starting:
-            return "Open WebUI를 시작하고 있습니다. CMD 창을 확인하십시오."
-        return "Open WebUI가 현재 실행 중이 아닙니다."
+            return "활성화 중"
+        return "비활성화"
 
     def _server_url(self, config: dict[str, Any]) -> str:
         host = str(config["host"])
