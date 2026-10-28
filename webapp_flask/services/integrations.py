@@ -25,13 +25,6 @@ DEFAULT_INTEGRATIONS: tuple[Integration, ...] = (
         description="로컬 Open WebUI 채팅 화면",
     ),
     Integration(
-        id="mdlive",
-        name="MDlive",
-        kind="editor",
-        url="https://mdlivepro.vercel.app/",
-        description="MDlive 웹 에디터",
-    ),
-    Integration(
         id="mdpro",
         name="MDpro",
         kind="editor",

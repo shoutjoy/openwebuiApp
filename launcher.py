@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
+import signal
 import shutil
 import socket
 import subprocess
@@ -20,6 +22,9 @@ import threading
 import time
 import webbrowser
 from pathlib import Path
+from urllib.parse import urlencode
+
+import ollama_manager
 
 try:
     import tkinter as tk
@@ -72,9 +77,8 @@ DEFAULT_CONFIG = {
 
 OLLAMA_MODELS_URL = "https://ollama.com/library"
 HUGGING_FACE_MODELS_URL = "https://huggingface.co/models"
-MDLIVE_URL = "https://mdlivepro.vercel.app/"
 MDPRO_URL = "https://mdproviewer.vercel.app/"
-DEFAULT_MODEL_TO_PULL = "llama3.1:8b"
+DEFAULT_MODEL_TO_PULL = "gemma4:e2b"
 LEGACY_DIRECT_VENV_COMMAND = r'"C:\OpenWebUI\venv\Scripts\open-webui.exe" serve'
 CONTEXT_MENU_KEY_NAME = "OpenWebUILocalAILauncher"
 CONTEXT_MENU_LABEL = "Joonghee Park PhD's OpenWebUI Local AI 실행"
@@ -85,6 +89,7 @@ CONTEXT_MENU_REGISTRY_KEYS = [
 ]
 
 POPULAR_OLLAMA_MODELS = [
+    "gemma4:e2b",
     "llama3.1:8b",
     "llama3.2:3b",
     "qwen2.5:7b",
@@ -144,6 +149,17 @@ def port_can_bind(host: str, port: int) -> bool:
 
 
 def start_cmd_window(command: str, title: str) -> subprocess.Popen:
+    if sys.platform == "darwin":
+        ensure_app_dir()
+        log_path = APP_DIR / ("server.log" if "Server" in title else "operations.log")
+        env = os.environ.copy()
+        env["PATH"] = ("/opt/homebrew/bin:/usr/local/bin:"
+                       "/Library/Frameworks/Python.framework/Versions/3.11/bin:"
+                       "/Library/Frameworks/Python.framework/Versions/3.12/bin:" + env.get("PATH", ""))
+        with log_path.open("a", encoding="utf-8") as log:
+            return subprocess.Popen(["/bin/sh", "-c", command], stdout=log,
+                                    stderr=subprocess.STDOUT, cwd=str(Path.home()),
+                                    env=env, start_new_session=True)
     cmd_line = f'title {title} && echo [{APP_NAME}] {title} && {command}'
     return subprocess.Popen(
         ["cmd.exe", "/v:on", "/k", cmd_line],
@@ -188,6 +204,21 @@ def build_open_webui_install_command() -> str:
     )
 
 
+def mac_install_command() -> str:
+    return (
+        'set -e; mkdir -p "$HOME/OpenWebUI"; cd "$HOME/OpenWebUI"; '
+        'if command -v python3.11 >/dev/null 2>&1; then PY=python3.11; '
+        'elif command -v python3.12 >/dev/null 2>&1; then PY=python3.12; '
+        'else echo "Python 3.11 or 3.12 is required"; exit 1; fi; '
+        '"$PY" -m venv venv; venv/bin/python -m pip install --upgrade pip setuptools wheel; '
+        'venv/bin/python -m pip install open-webui; venv/bin/python -m pip show open-webui'
+    )
+
+
+def mac_serve_command() -> str:
+    return 'cd "$HOME/OpenWebUI" && exec ./venv/bin/open-webui serve --port 8080'
+
+
 def build_python_pip_upgrade_command() -> str:
     return "python.exe -m pip install --upgrade pip"
 
@@ -197,6 +228,8 @@ def build_python311_openwebui_setup_command() -> str:
 
 
 def build_python311_openwebui_serve_command() -> str:
+    if sys.platform == "darwin":
+        return mac_serve_command()
     return r"cd /d C:\OpenWebUI && call venv\Scripts\activate.bat && open-webui serve --port 8080"
 
 
@@ -233,6 +266,11 @@ def command_with_openwebui_port(command: str, port: int) -> str:
 
 
 def openwebui_venv_paths() -> dict[str, Path]:
+    if sys.platform == "darwin":
+        root = Path.home() / "OpenWebUI"
+        venv = root / "venv"
+        return {"root": root, "venv": venv, "python": venv / "bin/python",
+                "activate": venv / "bin/activate", "open_webui": venv / "bin/open-webui"}
     root = Path("C:/OpenWebUI")
     venv = root / "venv"
     scripts = venv / "Scripts"
@@ -264,6 +302,8 @@ def find_ollama_command() -> str | None:
     found = shutil.which("ollama")
     if found:
         return found
+    if sys.platform == "darwin":
+        return next((str(p) for p in (Path('/opt/homebrew/bin/ollama'), Path('/usr/local/bin/ollama')) if p.is_file()), None)
 
     local_app_data = Path(os.environ.get("LOCALAPPDATA", ""))
     candidates = [
@@ -308,6 +348,8 @@ def run_ollama_list(ollama_command: str) -> str:
             creationflags=0x08000000 if os.name == "nt" else 0,
         )
     except OSError:
+        if os.name != "nt":
+            raise
         cmd_line = f'"{ollama_command}" list'
         return subprocess.check_output(
             ["cmd.exe", "/c", cmd_line],
@@ -320,6 +362,8 @@ def run_ollama_list(ollama_command: str) -> str:
 
 
 def quote_cmd_arg(value: str) -> str:
+    if os.name != "nt":
+        return shlex.quote(value)
     special_chars = set(" &()[]{}^=;!'+,`")
     if any(char.isspace() or char in special_chars for char in value):
         return f'"{value}"'
@@ -672,10 +716,16 @@ class LauncherApp(tk.Tk):
         self.internal_open_webui_command: str | None = None
         self.venv_open_webui_ready = False
         self.auto_start_attempted = False
+        self.ollama_manager = ollama_manager.OllamaManager(APP_DIR)
+        self.ollama_pull_process: subprocess.Popen | None = None
+        self.ollama_busy = False
+        self.ollama_loading = False
+        self.ollama_status_generation = 0
 
         self.title(f"{APP_NAME} v{APP_VERSION}")
-        self.geometry("860x780")
-        self.resizable(False, False)
+        self.geometry("920x850")
+        self.minsize(860, 780)
+        self.resizable(True, True)
 
         self.status_var = tk.StringVar(value="Open WebUI 상태를 확인하고 있습니다.")
         self.url_var = tk.StringVar()
@@ -687,6 +737,12 @@ class LauncherApp(tk.Tk):
         self.model_status_var = tk.StringVar(value="Ollama에 설치된 모델을 자동으로 찾고 있습니다.")
         self.install_command_var = tk.StringVar(value="Open WebUI 전용 가상환경 설치 명령")
         self.model_command_var = tk.StringVar()
+        self.ollama_model_var = tk.StringVar(value=DEFAULT_MODEL_TO_PULL)
+        self.ollama_search_var = tk.StringVar()
+        self.ollama_origins_var = tk.StringVar(value=str(self.config_data.get("ollama_origins") or ollama_manager.DEFAULT_ORIGINS))
+        self.ollama_server_status_var = tk.StringVar(value="Ollama 상태 확인 중")
+        self.ollama_action_status_var = tk.StringVar(value="설치할 모델을 입력하거나 검색하십시오.")
+        self.ollama_command_display_var = tk.StringVar()
         self.model_var.trace_add("write", lambda *_: self.update_model_command())
 
         self._build_ui()
@@ -695,10 +751,28 @@ class LauncherApp(tk.Tk):
         self.after(300, self.refresh_status)
         self.after(700, lambda: self.refresh_ollama_models(show_errors=False))
         self.after(1200, self.run_auto_start_if_enabled)
+        self.after(500, self.refresh_ollama_server_status)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def _build_ui(self) -> None:
         style = ttk.Style(self)
+        if "clam" in style.theme_names():
+            style.theme_use("clam")
+        style.configure("TNotebook", background="#e7edf5", borderwidth=0, tabmargins=(4, 6, 4, 0))
+        style.configure("TNotebook.Tab", background="#cbd5e1", foreground="#334155",
+                        padding=(16, 8), font=("맑은 고딕", 10, "bold"), borderwidth=1)
+        style.map("TNotebook.Tab", background=[("selected", "#1e4e8c"), ("active", "#aebfd3")],
+                  foreground=[("selected", "#ffffff"), ("active", "#172b46")])
+        style.configure("TButton", padding=(10, 6), background="#e1e9f3", foreground="#172f4d",
+                        bordercolor="#a8b9cc", font=("맑은 고딕", 10))
+        style.map("TButton", background=[("disabled", "#edf0f3"), ("pressed", "#b4c7dd"), ("active", "#cbdcf0")],
+                  foreground=[("disabled", "#8b98a6")])
+        for name, background, active in (("Start.TButton", "#166c45", "#0e5635"),
+                                         ("Stop.TButton", "#a02d35", "#83222a"),
+                                         ("Action.TButton", "#245b9a", "#19477b")):
+            style.configure(name, background=background, foreground="#ffffff", bordercolor=background,
+                            padding=(10, 7), font=("맑은 고딕", 10, "bold"))
+            style.map(name, background=[("pressed", active), ("active", active)], foreground=[("disabled", "#bfc9d4")])
         style.configure("Primary.TButton", font=("맑은 고딕", 16, "bold"), padding=16)
         style.configure("Title.TLabel", font=("맑은 고딕", 20, "bold"))
         style.configure("Status.TLabel", font=("맑은 고딕", 12, "bold"))
@@ -722,8 +796,44 @@ class LauncherApp(tk.Tk):
 
         run_tab = ttk.Frame(notebook, padding=16)
         setup_tab = ttk.Frame(notebook, padding=16)
+        mac_tab = ttk.Frame(notebook, padding=16)
+        ollama_tab = ttk.Frame(notebook, padding=12)
         notebook.add(run_tab, text="실행")
         notebook.add(setup_tab, text="설치 및 모델")
+        notebook.add(mac_tab, text="Mac 설치 및 모델")
+        notebook.add(ollama_tab, text="Ollama")
+        self.build_ollama_tab(ollama_tab)
+
+        mac_setup = ttk.Notebook(mac_tab)
+        mac_setup.pack(fill="both", expand=True)
+        mac_python = ttk.Frame(mac_setup, padding=12)
+        mac_models = ttk.Frame(mac_setup, padding=12)
+        mac_setup.add(mac_python, text="가상환경 & 파이썬")
+        mac_setup.add(mac_models, text="AI 모델 설치")
+        ttk.Label(mac_python, text="macOS: ~/OpenWebUI/venv에 Python 3.11 또는 3.12로 Open WebUI를 설치합니다.", wraplength=700).pack(anchor="w")
+        mac_text = tk.Text(mac_python, height=10, wrap="word")
+        mac_text.pack(fill="both", expand=True, pady=8)
+        mac_text.insert("1.0", mac_install_command())
+        mac_text.configure(state="disabled")
+        mac_buttons = ttk.Frame(mac_python)
+        mac_buttons.pack(fill="x")
+        for label, callback in (("가상환경 설치 실행", self.install_mac_openwebui),
+                                ("pip 업그레이드", self.upgrade_mac_pip),
+                                ("설치 명령 복사", self.copy_mac_install_command)):
+            ttk.Button(mac_buttons, text=label, command=callback).pack(side="left", fill="x", expand=True, padx=3)
+        mac_actions = ttk.Frame(mac_python)
+        mac_actions.pack(fill="x", pady=8)
+        ttk.Button(mac_actions, text="가상환경 설치 확인", command=self.check_mac_venv).pack(side="left", fill="x", expand=True, padx=3)
+        ttk.Button(mac_actions, text="가상환경에서 실행", command=self.start_mac_venv).pack(side="left", fill="x", expand=True, padx=3)
+        ttk.Label(mac_models, text="Ollama 설치 후 모델명을 입력하세요. 설치된 모델 목록은 설치 및 모델 탭에서 확인할 수 있습니다.", wraplength=700).pack(anchor="w")
+        ttk.Label(mac_models, textvariable=self.model_status_var, wraplength=700).pack(anchor="w", pady=8)
+        ttk.Entry(mac_models, textvariable=self.model_var).pack(fill="x", pady=8)
+        for label, callback in (("모델 목록 새로고침", self.refresh_ollama_models),
+                                ("모델 설치", self.install_mac_model),
+                                ("모델 설치 명령 복사", self.copy_model_install_command),
+                                ("모델 선택 저장", self.save_selected_model),
+                                ("Ollama 모델 페이지 열기", self.open_ollama_models_page)):
+            ttk.Button(mac_models, text=label, command=callback).pack(fill="x", pady=3)
 
         status_box = ttk.LabelFrame(run_tab, text="실행 상태", padding=16)
         status_box.pack(fill="x")
@@ -792,26 +902,22 @@ class LauncherApp(tk.Tk):
         editor_box.pack(fill="x", pady=(12, 0))
         editor_box.columnconfigure(0, weight=1)
         editor_box.columnconfigure(1, weight=1)
-        editor_box.columnconfigure(2, weight=1)
 
-        ttk.Button(
-            editor_box,
-            text="MDlive",
-            command=self.open_mdlive,
-        ).grid(row=0, column=0, sticky="ew", padx=(0, 4), ipady=4)
         ttk.Button(
             editor_box,
             text="MDpro",
             command=self.open_mdpro,
-        ).grid(row=0, column=1, sticky="ew", padx=4, ipady=4)
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 4), ipady=4)
         ttk.Button(
             editor_box,
             text="Flask 웹앱 실행",
             command=self.start_flask_webapp,
-        ).grid(row=0, column=2, sticky="ew", padx=(4, 0), ipady=4)
+            state="normal" if os.name == "nt" else "disabled",
+        ).grid(row=0, column=1, sticky="ew", padx=(4, 0), ipady=4)
 
         context_box = ttk.LabelFrame(run_tab, text="Windows 오른쪽 클릭 메뉴", padding=12)
-        context_box.pack(fill="x", pady=(12, 0))
+        if os.name == "nt":
+            context_box.pack(fill="x", pady=(12, 0))
         context_box.columnconfigure(0, weight=1)
         context_box.columnconfigure(1, weight=1)
         ttk.Button(
@@ -833,8 +939,8 @@ class LauncherApp(tk.Tk):
         ttk.Label(
             info,
             text=(
-                "① Local환경실행은 PC에 직접 설치된 open-webui 명령을 실행합니다.\n"
-                "② 가상환경 실행은 C:\\OpenWebUI로 이동한 뒤 venv를 활성화하고 open-webui serve를 실행합니다.\n"
+                "① Local환경실행은 PC에 직접 설치된 open-webui 명령을 실행합니다.\n" +
+                ("② 가상환경 실행은 ~/OpenWebUI/venv에서 서버를 실행합니다.\n" if sys.platform == "darwin" else "② 가상환경 실행은 C:\\OpenWebUI로 이동한 뒤 venv를 활성화하고 open-webui serve를 실행합니다.\n") +
                 "③ 자동실행은 다음 앱 시작 때 가상환경을 우선 사용하고, 없으면 Local환경실행을 사용합니다.\n"
                 "④ Local AI Chat 버튼은 http://localhost:8080/ 채팅 화면을 엽니다."
             ),
@@ -964,11 +1070,340 @@ class LauncherApp(tk.Tk):
             side="left", expand=True, fill="x", padx=(4, 0)
         )
 
+    def build_ollama_tab(self, parent: ttk.Frame) -> None:
+        tabs = ttk.Notebook(parent)
+        tabs.pack(fill="both", expand=True)
+        server = ttk.Frame(tabs, padding=10)
+        models = ttk.Frame(tabs, padding=10)
+        tabs.add(server, text="설치 · 서버 · CORS")
+        tabs.add(models, text="모델 검색 · 설치 · 로딩")
+
+        install = ttk.LabelFrame(server, text="Ollama 데스크톱 앱 설치", padding=8)
+        install.pack(fill="x")
+        ttk.Label(install, text="운영체제에 맞는 공식 설치 프로그램을 다운로드해 설치하세요.").pack(anchor="w")
+        links = ttk.Frame(install)
+        links.pack(fill="x", pady=4)
+        ttk.Button(links, text="Windows 다운로드", command=lambda: webbrowser.open("https://ollama.com/download/windows")).pack(side="left", expand=True, fill="x", padx=3)
+        ttk.Button(links, text="macOS 다운로드", command=lambda: webbrowser.open("https://ollama.com/download/mac")).pack(side="left", expand=True, fill="x", padx=3)
+        ttk.Button(links, text="설치 확인", command=self.check_ollama_install).pack(side="left", expand=True, fill="x", padx=3)
+
+        control = ttk.LabelFrame(server, text="Ollama 서버", padding=8)
+        control.pack(fill="x", pady=6)
+        status_row = ttk.Frame(control)
+        status_row.pack(fill="x")
+        frame_color = ttk.Style(self).lookup("TFrame", "background") or "#f0f0f0"
+        self.ollama_status_light = tk.Canvas(status_row, width=20, height=20, bg=frame_color,
+                                             highlightthickness=0, bd=0)
+        self.ollama_status_light.pack(side="left", padx=(0, 8))
+        self.ollama_status_dot = self.ollama_status_light.create_oval(3, 3, 17, 17, fill="#d99719", outline="#9a690c")
+        ttk.Label(status_row, textvariable=self.ollama_server_status_var, wraplength=690).pack(side="left", fill="x", expand=True)
+        buttons = ttk.Frame(control)
+        buttons.pack(fill="x", pady=5)
+        for label, action, button_style in (("서버 실행", "start", "Start.TButton"), ("서버 정지", "stop", "Stop.TButton"), ("서버 재시작", "restart", "Action.TButton")):
+            ttk.Button(buttons, text=label, style=button_style, command=lambda a=action: self.control_ollama(a)).pack(side="left", fill="x", expand=True, padx=3)
+        ttk.Button(control, text="기존 Ollama 서버 종료", command=lambda: self.control_ollama("external_stop")).pack(fill="x", padx=3, pady=(0, 4))
+        ttk.Label(control, text="기존 서버 종료는 11434 포트를 사용하는 Ollama만 종료합니다. 런처가 시작한 서버는 런처 종료 시 함께 종료됩니다.", wraplength=690).pack(anchor="w")
+
+        cors = ttk.LabelFrame(server, text="CORS 허용 Origin", padding=8)
+        cors.pack(fill="both", expand=True)
+        ttk.Label(cors, text="쉼표로 추가한 Origin은 서버 실행 또는 재시작 시 자동 적용됩니다.", wraplength=690).pack(anchor="w")
+        ttk.Entry(cors, textvariable=self.ollama_origins_var).pack(fill="x", pady=5)
+        self.ollama_command_text = tk.Text(cors, height=5, wrap="word", bg="#182230", fg="#e4edf7",
+                                           insertbackground="#ffffff", selectbackground="#3d6792",
+                                           relief="flat", borderwidth=0, padx=10, pady=8,
+                                           font=("Consolas" if os.name == "nt" else "Menlo", 10))
+        self.ollama_command_text.pack(fill="both", expand=True, pady=(2, 2))
+        ttk.Button(cors, text="현재 OS의 터미널 명령 복사", command=self.copy_ollama_serve_command).pack(anchor="w", pady=5)
+        self.ollama_origins_var.trace_add("write", lambda *_: self.update_ollama_commands())
+        self.update_ollama_commands()
+
+        ttk.Label(models, text="모델명을 입력하거나 설치된 모델을 선택하세요. 기본 모델: gemma4:e2b", wraplength=690).pack(anchor="w")
+        model_line = ttk.Frame(models)
+        model_line.pack(fill="x", pady=6)
+        ttk.Label(model_line, text="모델명").pack(side="left")
+        ttk.Entry(model_line, textvariable=self.ollama_model_var).pack(side="left", fill="x", expand=True, padx=6)
+        ttk.Button(model_line, text="다운로드 / 설치", command=self.pull_ollama_model).pack(side="left")
+        search_line = ttk.Frame(models)
+        search_line.pack(fill="x", pady=4)
+        ttk.Label(search_line, text="검색").pack(side="left")
+        ttk.Entry(search_line, textvariable=self.ollama_search_var).pack(side="left", fill="x", expand=True, padx=6)
+        ttk.Button(search_line, text="Ollama 온라인 검색", command=self.search_ollama_online).pack(side="left")
+        ttk.Label(models, text="설치된 모델 (검색어로 목록 필터)").pack(anchor="w")
+        self.ollama_listbox = tk.Listbox(models, height=7, exportselection=False)
+        self.ollama_listbox.pack(fill="both", expand=True, pady=4)
+        self.ollama_listbox.bind("<<ListboxSelect>>", self.select_ollama_model)
+        self.ollama_search_var.trace_add("write", lambda *_: self.filter_ollama_models())
+        model_buttons = ttk.Frame(models)
+        model_buttons.pack(fill="x")
+        ttk.Button(model_buttons, text="설치 모델 새로고침", command=self.refresh_ollama_tab_models).pack(side="left", fill="x", expand=True, padx=3)
+        ttk.Button(model_buttons, text="선택 모델 로딩", command=self.load_ollama_model).pack(side="left", fill="x", expand=True, padx=3)
+        ttk.Label(models, textvariable=self.ollama_action_status_var, wraplength=690).pack(anchor="w", pady=6)
+
+    def update_ollama_commands(self) -> None:
+        origins = self.ollama_origins_var.get().strip()
+        self.ollama_command_display_var.set("Windows PowerShell: " + ollama_manager.serve_command(origins, True) +
+                                            "\nmacOS 터미널: " + ollama_manager.serve_command(origins, False))
+        self.ollama_command_text.configure(state="normal")
+        self.ollama_command_text.delete("1.0", tk.END)
+        self.ollama_command_text.insert("1.0", self.ollama_command_display_var.get())
+        self.ollama_command_text.configure(state="disabled")
+
+    def copy_ollama_serve_command(self) -> None:
+        command = ollama_manager.serve_command(self.ollama_origins_var.get().strip(), os.name == "nt")
+        self.copy_to_clipboard(command, "Ollama 서버 명령을 복사했습니다.")
+
+    def check_ollama_install(self) -> None:
+        executable = find_ollama_command()
+        if executable:
+            messagebox.showinfo(APP_NAME, f"Ollama 실행 파일: {executable}")
+        else:
+            messagebox.showwarning(APP_NAME, "Ollama 실행 파일을 찾지 못했습니다. 다운로드 후 설치하고 다시 확인하세요.")
+
+    def refresh_ollama_server_status(self) -> None:
+        self.after(3000, self.refresh_ollama_server_status)
+        if self.ollama_busy:
+            return
+        self.ollama_status_generation += 1
+        generation = self.ollama_status_generation
+        def work() -> None:
+            result = ollama_manager.probe_server()
+            self.after(0, lambda: self.apply_ollama_server_status(generation, result))
+        threading.Thread(target=work, daemon=True).start()
+
+    def set_ollama_status(self, state: str, message: str) -> None:
+        colors = {"running": ("#22a65a", "#127c3e"), "stopped": ("#dc3545", "#a3212d"),
+                  "unknown": ("#d99719", "#9a690c")}
+        fill, outline = colors[state]
+        self.ollama_status_light.itemconfigure(self.ollama_status_dot, fill=fill, outline=outline)
+        self.ollama_server_status_var.set(message)
+
+    def apply_ollama_server_status(self, generation: int, result: str) -> None:
+        if generation != self.ollama_status_generation or self.ollama_busy:
+            return
+        managed = self.ollama_manager.is_managed_running()
+        if result == "running":
+            if managed:
+                changed = self.ollama_manager.origins != self.ollama_origins_var.get().strip()
+                message = "실행 중 — " + ("Origin 변경을 적용하려면 재시작하세요." if changed else "입력한 Origin 적용됨")
+            else:
+                message = "외부 Ollama 서버 실행 중 — Origin 설정은 확인할 수 없습니다."
+            self.set_ollama_status("running", message)
+        elif result == "stopped" and not managed:
+            self.set_ollama_status("stopped", "정지 — Ollama 서버가 실행 중이 아닙니다.")
+        else:
+            self.set_ollama_status("unknown", "확인 필요 — 서버 포트가 응답하지 않거나 Ollama인지 확인할 수 없습니다.")
+
+    def control_ollama(self, action: str) -> None:
+        if self.ollama_busy:
+            return
+        executable = find_ollama_command()
+        if action in ("start", "restart") and not executable:
+            messagebox.showwarning(APP_NAME, "Ollama를 먼저 설치하십시오.")
+            return
+        origins = self.ollama_origins_var.get().strip()
+        self.ollama_busy = True
+        self.ollama_status_generation += 1
+        self.set_ollama_status("unknown", "확인 중 — Ollama 서버 작업을 진행하고 있습니다.")
+        def work() -> None:
+            try:
+                if action == "external_stop":
+                    managed = self.ollama_manager.process
+                    ollama_manager.stop_external_ollama(managed.pid if managed and self.ollama_manager.is_managed_running() else None)
+                if action in ("stop", "restart"):
+                    self.ollama_manager.stop()
+                if action in ("start", "restart"):
+                    # Allow the stopped listener to release its port before restart.
+                    for _ in range(30):
+                        if not ollama_manager.port_in_use():
+                            break
+                        time.sleep(0.1)
+                    self.ollama_manager.start(executable, origins)
+                    for _ in range(100):
+                        if not self.ollama_manager.is_managed_running():
+                            raise RuntimeError(f"Ollama 서버 시작 실패. 로그: {APP_DIR / 'ollama-server.log'}")
+                        try:
+                            ollama_manager.api_request("/api/version", timeout=1)
+                            break
+                        except Exception:
+                            time.sleep(0.1)
+                    else:
+                        self.ollama_manager.stop()
+                        raise RuntimeError(f"Ollama 서버 응답 대기 시간 초과. 로그: {APP_DIR / 'ollama-server.log'}")
+                self.after(0, lambda: self.ollama_control_done(action, origins, None))
+            except Exception as exc:
+                self.after(0, lambda error=str(exc): self.ollama_control_done(action, origins, error))
+        threading.Thread(target=work, daemon=True).start()
+
+    def ollama_control_done(self, action: str, origins: str, error: str | None) -> None:
+        self.ollama_busy = False
+        if error:
+            self.set_ollama_status("unknown", error)
+            messagebox.showerror(APP_NAME, error)
+            return
+        if action in ("start", "restart"):
+            self.config_data["ollama_origins"] = origins
+            save_config(self.config_data)
+            self.set_ollama_status("running", "실행 중 — 입력한 Origin 적용됨")
+            self.refresh_ollama_tab_models()
+        else:
+            self.set_ollama_status("unknown", "확인 중 — 서버 종료 상태를 확인하고 있습니다.")
+
+    def search_ollama_online(self) -> None:
+        webbrowser.open("https://ollama.com/search?" + urlencode({"q": self.ollama_search_var.get().strip()}))
+
+    def filter_ollama_models(self) -> None:
+        query = self.ollama_search_var.get().strip().lower()
+        self.ollama_listbox.delete(0, tk.END)
+        for model in getattr(self, "ollama_tab_models", []):
+            if query in model.lower():
+                self.ollama_listbox.insert(tk.END, model)
+
+    def select_ollama_model(self, _event: tk.Event) -> None:
+        selected = self.ollama_listbox.curselection()
+        if selected:
+            self.ollama_model_var.set(self.ollama_listbox.get(selected[0]))
+
+    def refresh_ollama_tab_models(self) -> None:
+        self.ollama_action_status_var.set("설치된 모델을 확인 중입니다.")
+        def work() -> None:
+            try:
+                result = ollama_manager.api_request("/api/tags")
+                models = [m["name"] for m in result.get("models", []) if isinstance(m, dict) and isinstance(m.get("name"), str)]
+                self.after(0, lambda: self.ollama_models_received(models))
+            except Exception as exc:
+                self.after(0, lambda error=str(exc): self.ollama_action_status_var.set(f"모델 목록 확인 실패: {error}"))
+        threading.Thread(target=work, daemon=True).start()
+
+    def ollama_models_received(self, models: list[str]) -> None:
+        self.ollama_tab_models = models
+        self.filter_ollama_models()
+        self.ollama_action_status_var.set(f"설치된 모델 {len(models)}개")
+
+    def pull_ollama_model(self) -> None:
+        model = self.ollama_model_var.get().strip()
+        executable = find_ollama_command()
+        if not model_name_is_safe(model):
+            messagebox.showwarning(APP_NAME, "올바른 Ollama 모델명을 입력하세요.")
+            return
+        if not executable:
+            messagebox.showwarning(APP_NAME, "Ollama를 먼저 설치하십시오.")
+            return
+        if self.ollama_pull_process and self.ollama_pull_process.poll() is None:
+            messagebox.showwarning(APP_NAME, "모델 다운로드가 이미 진행 중입니다.")
+            return
+        try:
+            ensure_app_dir()
+            with (APP_DIR / "ollama-pull.log").open("a", encoding="utf-8") as log:
+                env = os.environ.copy()
+                env["OLLAMA_HOST"] = "127.0.0.1:11434"
+                self.ollama_pull_process = subprocess.Popen([executable, "pull", model], stdout=log, stderr=subprocess.STDOUT,
+                                                            env=env, creationflags=0x08000000 if os.name == "nt" else 0)
+        except OSError as exc:
+            messagebox.showerror(APP_NAME, str(exc))
+            return
+        self.ollama_action_status_var.set(f"{model} 다운로드 중 — 로그: {APP_DIR / 'ollama-pull.log'}")
+        self.after(1000, lambda: self.poll_ollama_pull(model))
+
+    def poll_ollama_pull(self, model: str) -> None:
+        result = self.ollama_pull_process.poll()
+        if result is None:
+            self.after(1000, lambda: self.poll_ollama_pull(model))
+        elif result == 0:
+            self.ollama_action_status_var.set(f"{model} 다운로드 완료")
+            self.refresh_ollama_tab_models()
+        else:
+            self.ollama_action_status_var.set(f"{model} 다운로드 실패 — 로그: {APP_DIR / 'ollama-pull.log'}")
+            messagebox.showerror(APP_NAME, f"모델 설치 실패. Ollama 서버와 로그를 확인하세요.\n{APP_DIR / 'ollama-pull.log'}")
+
+    def load_ollama_model(self) -> None:
+        if self.ollama_loading:
+            messagebox.showwarning(APP_NAME, "모델 로딩이 이미 진행 중입니다.")
+            return
+        model = self.ollama_model_var.get().strip()
+        if not model_name_is_safe(model):
+            messagebox.showwarning(APP_NAME, "올바른 Ollama 모델명을 입력하세요.")
+            return
+        self.ollama_loading = True
+        self.ollama_action_status_var.set(f"{model} 로딩 중입니다. 시간이 걸릴 수 있습니다.")
+        def work() -> None:
+            try:
+                ollama_manager.api_request("/api/generate", {"model": model, "prompt": "", "stream": False, "keep_alive": "5m"}, timeout=600)
+                self.after(0, lambda: self.ollama_model_loaded(model))
+            except Exception as exc:
+                self.after(0, lambda error=str(exc): self.ollama_model_load_failed(error))
+        threading.Thread(target=work, daemon=True).start()
+
+    def ollama_model_loaded(self, model: str) -> None:
+        self.ollama_loading = False
+        self.config_data["selected_model"] = model
+        save_config(self.config_data)
+        self.model_var.set(model)
+        self.ollama_action_status_var.set(f"{model} 로딩 완료 (유휴 시 5분 유지). Open WebUI에서도 모델을 선택하세요.")
+
+    def ollama_model_load_failed(self, error: str) -> None:
+        self.ollama_loading = False
+        self.ollama_action_status_var.set(f"모델 로딩 실패: {error}")
+
     def copy_to_clipboard(self, text: str, success_message: str) -> None:
         self.clipboard_clear()
         self.clipboard_append(text)
         self.update_idletasks()
         messagebox.showinfo(APP_NAME, success_message)
+
+    def require_mac(self) -> bool:
+        if sys.platform == "darwin":
+            return True
+        messagebox.showwarning(APP_NAME, "이 기능은 macOS에서 실행하십시오.")
+        return False
+
+    def run_mac_operation(self, command: str, title: str) -> None:
+        if not self.require_mac():
+            return
+        if getattr(self, "mac_operation", None) and self.mac_operation.poll() is None:
+            messagebox.showwarning(APP_NAME, "이전 설치 작업이 진행 중입니다.")
+            return
+        try:
+            self.mac_operation = start_cmd_window(command, title)
+        except OSError as exc:
+            messagebox.showerror(APP_NAME, f"작업을 시작하지 못했습니다: {exc}")
+            return
+        self.status_var.set(f"{title} 진행 중. 로그: {APP_DIR / 'operations.log'}")
+        messagebox.showinfo(APP_NAME, f"{title} 작업을 시작했습니다.\n진행 로그: {APP_DIR / 'operations.log'}")
+        self.after(1000, lambda: self.poll_mac_operation(title))
+
+    def poll_mac_operation(self, title: str) -> None:
+        result = self.mac_operation.poll()
+        if result is None:
+            self.after(1000, lambda: self.poll_mac_operation(title))
+            return
+        self.refresh_status()
+        if result == 0:
+            messagebox.showinfo(APP_NAME, f"{title} 작업이 완료되었습니다.")
+            if title == "Install Ollama Model":
+                self.refresh_ollama_models(show_errors=False)
+        else:
+            messagebox.showerror(APP_NAME, f"{title} 작업이 실패했습니다 (종료 코드 {result}).\n로그: {APP_DIR / 'operations.log'}")
+
+    def install_mac_openwebui(self) -> None:
+        self.run_mac_operation(mac_install_command(), "Install Open WebUI")
+
+    def upgrade_mac_pip(self) -> None:
+        self.run_mac_operation('"$HOME/OpenWebUI/venv/bin/python" -m pip install --upgrade pip', "Upgrade pip")
+
+    def copy_mac_install_command(self) -> None:
+        self.copy_to_clipboard(mac_install_command(), "Mac 설치 명령을 복사했습니다.")
+
+    def check_mac_venv(self) -> None:
+        if self.require_mac():
+            self.check_openwebui_venv()
+
+    def start_mac_venv(self) -> None:
+        if self.require_mac():
+            self.start_venv_chat()
+
+    def install_mac_model(self) -> None:
+        if self.require_mac():
+            self.install_selected_model()
 
     def format_install_command_for_display(self) -> str:
         return "\n".join(
@@ -988,6 +1423,9 @@ class LauncherApp(tk.Tk):
         )
 
     def install_open_webui(self) -> None:
+        if sys.platform == "darwin":
+            messagebox.showwarning(APP_NAME, "Mac 설치 및 모델 탭을 사용하십시오.")
+            return
         command = build_open_webui_install_command()
         self.install_command_var.set(r"C:\OpenWebUI\venv + Python 3.11/3.12 + python -m pip install open-webui")
         self.config_data["venv_command"] = build_python311_openwebui_serve_command()
@@ -1004,6 +1442,9 @@ class LauncherApp(tk.Tk):
             messagebox.showerror(APP_NAME, f"설치 CMD 창을 시작하지 못했습니다.\n\n{exc}")
 
     def upgrade_python_pip(self) -> None:
+        if sys.platform == "darwin":
+            self.upgrade_mac_pip()
+            return
         command = build_python_pip_upgrade_command()
         try:
             start_cmd_window(command, "python pip upgrade")
@@ -1071,7 +1512,7 @@ class LauncherApp(tk.Tk):
             output = run_ollama_list(ollama_command)
             models = parse_ollama_models(output)
         except Exception as exc:
-            self.after(0, lambda: self._ollama_models_failed(str(exc), show_errors))
+            self.after(0, lambda error=str(exc): self._ollama_models_failed(error, show_errors))
             return
 
         self.after(0, lambda: self._ollama_models_loaded(models))
@@ -1130,6 +1571,9 @@ class LauncherApp(tk.Tk):
             return
 
         command = self.model_command_var.get().strip()
+        if sys.platform == "darwin":
+            self.run_mac_operation(command, "Install Ollama Model")
+            return
         try:
             start_cmd_window(command, "Install Ollama Model")
         except Exception as exc:
@@ -1150,9 +1594,6 @@ class LauncherApp(tk.Tk):
 
     def open_hugging_face_models_page(self) -> None:
         webbrowser.open(HUGGING_FACE_MODELS_URL)
-
-    def open_mdlive(self) -> None:
-        webbrowser.open(MDLIVE_URL)
 
     def open_mdpro(self) -> None:
         webbrowser.open(MDPRO_URL)
@@ -1221,6 +1662,8 @@ class LauncherApp(tk.Tk):
     def refresh_installation_detection(self) -> None:
         self.config_data = update_config_with_detected_runtime(self.config_data, save=True)
         found = self.config_data.get("open_webui_path") or find_open_webui_command()
+        if found and not path_exists(Path(found)):
+            found = find_open_webui_command()
         self.internal_open_webui_command = found
 
         self.venv_open_webui_ready = openwebui_venv_is_installed()
@@ -1240,7 +1683,7 @@ class LauncherApp(tk.Tk):
             self.internal_start_button.configure(text="Local환경실행")
             self.venv_start_button.configure(text="가상환경 실행")
         elif self.is_starting:
-            self.status_var.set("Open WebUI를 시작하고 있습니다. CMD 창을 확인하십시오.")
+            self.status_var.set("Open WebUI를 시작하고 있습니다. " + (f"로그: {APP_DIR / 'server.log'}" if sys.platform == "darwin" else "CMD 창을 확인하십시오."))
             self.internal_start_button.configure(text="서버 시작 중...")
             self.venv_start_button.configure(text="서버 시작 중...")
         else:
@@ -1363,7 +1806,7 @@ class LauncherApp(tk.Tk):
             self.is_starting = False
             self.progress.stop()
             self.configure_server_buttons("normal")
-            messagebox.showerror(APP_NAME, f"CMD 창을 시작하지 못했습니다.\n\n{exc}")
+            messagebox.showerror(APP_NAME, f"서버를 시작하지 못했습니다.\n\n{exc}")
             self.refresh_status()
             return
 
@@ -1405,8 +1848,8 @@ class LauncherApp(tk.Tk):
         self.refresh_status()
         messagebox.showerror(
             APP_NAME,
-            "Open WebUI 서버 프로세스가 종료되었습니다.\n"
-            "열려 있는 CMD 창의 오류 메시지를 확인하고 설정의 실행 명령을 점검하십시오.",
+            "Open WebUI 서버 프로세스가 종료되었습니다.\n" +
+            (f"로그를 확인하십시오: {APP_DIR / 'server.log'}" if sys.platform == "darwin" else "열려 있는 CMD 창의 오류 메시지를 확인하고 설정의 실행 명령을 점검하십시오."),
         )
 
     def _server_timeout(self) -> None:
@@ -1416,8 +1859,8 @@ class LauncherApp(tk.Tk):
         self.refresh_status()
         messagebox.showwarning(
             APP_NAME,
-            "설정된 대기시간 안에 localhost 포트가 열리지 않았습니다.\n"
-            "CMD 창의 진행 상태를 확인하십시오.",
+            "설정된 대기시간 안에 localhost 포트가 열리지 않았습니다.\n" +
+            (f"로그를 확인하십시오: {APP_DIR / 'server.log'}" if sys.platform == "darwin" else "CMD 창의 진행 상태를 확인하십시오."),
         )
 
     def open_browser(self) -> None:
@@ -1426,12 +1869,15 @@ class LauncherApp(tk.Tk):
     def stop_server(self) -> None:
         if self.server_process and self.server_process.poll() is None:
             try:
-                subprocess.run(
-                    ["taskkill", "/PID", str(self.server_process.pid), "/T", "/F"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    creationflags=0x08000000,
-                )
+                if sys.platform == "darwin":
+                    os.killpg(self.server_process.pid, signal.SIGTERM)
+                else:
+                    subprocess.run(
+                        ["taskkill", "/PID", str(self.server_process.pid), "/T", "/F"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        creationflags=0x08000000,
+                    )
                 self.server_process = None
                 messagebox.showinfo(APP_NAME, "이 앱에서 시작한 Open WebUI 서버를 중지했습니다.")
             except Exception as exc:
@@ -1454,11 +1900,20 @@ class LauncherApp(tk.Tk):
             messagebox.showinfo(APP_NAME, "실행 설정을 저장했습니다.")
 
     def on_close(self) -> None:
+        if self.ollama_busy:
+            messagebox.showwarning(APP_NAME, "Ollama 서버 작업이 끝난 뒤 종료하십시오.")
+            return
+        if self.ollama_manager.is_managed_running():
+            try:
+                self.ollama_manager.stop()
+            except Exception as exc:
+                messagebox.showerror(APP_NAME, f"Ollama 서버를 종료하지 못했습니다: {exc}")
+                return
         # 서버는 유지한다. CMD 창에서 로그를 계속 확인할 수 있다.
         self.destroy()
 
 
 if __name__ == "__main__":
-    if os.name != "nt":
-        raise SystemExit("이 실행기는 Windows용입니다.")
+    if os.name != "nt" and sys.platform != "darwin":
+        raise SystemExit("이 실행기는 Windows와 macOS를 지원합니다.")
     LauncherApp().mainloop()

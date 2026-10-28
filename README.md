@@ -1,6 +1,27 @@
 # Joonghee Park PhD 's OpenWebUI Local AI v3.1.2
 
-이 프로그램은 Windows에서 Open WebUI를 로컬로 실행하는 Tkinter 런처이다. 기존 BAT 실행 흐름을 앱 안으로 옮기고, 처음 사용자용 Open WebUI 설치 명령과 Ollama 모델 확인/설치 기능을 함께 제공한다.
+이 프로그램은 Windows와 macOS에서 Open WebUI를 로컬로 실행하는 Tkinter 런처이다. Open WebUI 설치와 Ollama 모델 확인 및 설치 기능을 함께 제공한다.
+
+## macOS 실행
+
+소스 코드가 있는 폴더에서 Tkinter가 포함된 Python으로 `python3 launcher.py`를 실행하고, **Mac 설치 및 모델** 탭을 사용한다. Windows용 EXE와 BAT 파일은 Mac에서 실행되지 않는다. 설치에는 Python 3.11 또는 3.12가 미리 설치되어 있어야 한다. `python3.11`을 먼저 찾고 없으면 `python3.12`를 사용한다.
+
+- `가상환경 설치 실행`: `~/OpenWebUI/venv`를 만들고 pip와 Open WebUI를 설치한다. 설치가 완료되거나 실패하면 알림이 표시된다.
+- `pip 업그레이드`: 이 가상환경의 pip를 업데이트한다.
+- `가상환경 설치 확인`과 `가상환경에서 실행`: 설치 상태를 확인하고 서버를 시작한다. 서버가 준비되면 설정에 따라 브라우저가 열린다.
+- `AI 모델 설치`: 별도로 설치한 Ollama를 사용하여 모델을 내려받는다. 설치된 모델 목록은 `설치 및 모델` 탭에서 확인할 수 있다.
+- 설치 및 모델 작업 로그는 `~/OpenWebUIChatLauncher/operations.log`, 서버 로그는 `~/OpenWebUIChatLauncher/server.log`에 기록된다. 서버는 실행 탭의 `서버 중지` 버튼으로 중지한다.
+
+macOS의 Python 설치에 Tkinter가 없다면 Tkinter를 포함한 Python을 설치해야 한다. Open WebUI 설치에는 인터넷 연결이 필요하다.
+
+## Ollama 탭
+
+- Windows와 macOS 공식 데스크톱 앱 다운로드 링크 및 설치 확인을 제공한다. 설치 후 기존 Ollama 데스크톱 앱이 서버를 자동으로 실행한 경우, CORS 설정을 적용하려면 해당 앱을 먼저 종료한다.
+- `서버 실행`은 입력한 `OLLAMA_ORIGINS`를 적용해 로컬 `127.0.0.1:11434`에서 Ollama를 시작한다. 허용할 웹 사이트의 Origin을 쉼표로 추가할 수 있으며, 변경 사항은 재시작할 때 적용된다. Windows PowerShell과 macOS 터미널 명령도 화면에 표시된다.
+- 서버 표시등은 Ollama API가 응답하면 초록색, 서버가 정지하면 빨간색, 작업 중이거나 포트의 응답을 확인할 수 없으면 노란색으로 표시된다.
+- 서버 중지와 재시작은 이 런처가 시작한 Ollama 프로세스에 적용된다. `기존 Ollama 서버 종료`는 11434 포트를 사용하는 외부 프로세스가 Ollama인지 확인한 후 종료한다. 다른 프로그램이 포트를 사용하면 종료하지 않는다. 데스크톱 앱이 서버를 자동으로 다시 실행하면 해당 앱을 직접 종료해야 한다. 런처를 닫으면 런처가 시작한 Ollama 서버도 종료된다. 외부 서버의 CORS 설정은 확인하거나 변경하지 않는다.
+- 기본 모델은 `gemma4:e2b`다. 모델명으로 다운로드하고, 설치된 모델을 검색·선택해 로딩할 수 있다. 온라인 검색은 Ollama의 검색 페이지를 연다. 로딩한 모델은 유휴 상태에서 5분 동안 유지되며, Open WebUI에서도 사용할 모델을 선택해야 한다.
+- 서버 로그는 `OpenWebUIChatLauncher/ollama-server.log`, 모델 다운로드 로그는 `OpenWebUIChatLauncher/ollama-pull.log`에 저장된다. 이 폴더는 Windows에서 `%LOCALAPPDATA%`, macOS에서 사용자 홈 폴더 아래에 있다.
 
 ## 핵심 동작
 
@@ -19,7 +40,6 @@
 - `가상환경 실행`: `C:\OpenWebUI\venv\Scripts\open-webui.exe`가 확인된 경우 활성화된다. 실행 시 `C:\OpenWebUI`로 이동하고 `venv\Scripts\activate.bat`로 가상환경을 활성화한 뒤 `open-webui serve`를 실행한다.
 - `Local AI Chat`: `http://localhost:8080/` 채팅 화면을 연다.
 - `자동실행`: 체크하면 다음에 앱을 켤 때 Open WebUI 서버를 자동으로 실행한다. 전용 가상환경이 있으면 가상환경 실행을 우선 사용하고, 없으면 Local환경실행을 사용한다.
-- `MDlive`: https://mdlivepro.vercel.app/ 를 연다.
 - `MDpro`: https://mdproviewer.vercel.app/ 를 연다.
 - `서버 중지`: 이 런처가 시작한 Open WebUI 서버를 중지한다.
 - `설정`: 실행 명령, 호스트, 포트, 자동 브라우저 열기 옵션을 변경한다.
@@ -140,7 +160,7 @@ Render Dashboard에서 수동으로 만들 때는 다음 값을 사용한다.
 
 `render.yaml`을 사용하는 Blueprint 배포도 가능하다. 이때 `OPENWEBUI_LAUNCHER_DEPLOY_MODE=1`이 자동 설정되어 로컬 Open WebUI 실행, CMD 실행, Windows 오른쪽 클릭 메뉴 등록 같은 기능은 안내 메시지만 반환한다.
 - Windows 오른쪽 클릭 메뉴 등록/해제
-- OpenWebUI, MDlive, MDpro 바로 열기
+- OpenWebUI와 MDpro 바로 열기
 - OpenWebUI API 테스트 UI
 - 학술 인용 가드 Function 코드 확인/복사
 
