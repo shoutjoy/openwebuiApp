@@ -9,6 +9,17 @@ import ollama_manager as manager
 
 
 class OllamaManagerTests(unittest.TestCase):
+    def test_mdpro_origin_migration_preserves_custom_values(self):
+        legacy = "http://localhost:8080,http://127.0.0.1:8080,http://localhost:8000,http://127.0.0.1:8000"
+        migrated = manager.migrate_mdpro_origin({"ollama_origins": legacy + ",https://custom.example"})
+        self.assertEqual(migrated["ollama_origins"], legacy + ",https://custom.example,https://mdproviewer.vercel.app")
+        self.assertTrue(migrated["mdpro_origin_migrated"])
+        self.assertEqual(manager.migrate_mdpro_origin({})["ollama_origins"], manager.DEFAULT_ORIGINS)
+        existing = manager.migrate_mdpro_origin({"ollama_origins": legacy + ",https://mdproviewer.vercel.app/"})
+        self.assertEqual(existing["ollama_origins"].count(manager.MDPRO_ORIGIN), 1)
+        migrated["ollama_origins"] = legacy
+        self.assertEqual(manager.migrate_mdpro_origin(migrated)["ollama_origins"], legacy)
+
     def test_api_model_list_load_and_error(self):
         opener = MagicMock()
         with patch.object(manager.urllib.request, "build_opener", return_value=opener):

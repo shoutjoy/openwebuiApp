@@ -10,7 +10,9 @@ Open WebUI Chat Launcher
 from __future__ import annotations
 
 import json
+import codecs
 import os
+import queue
 import re
 import shlex
 import signal
@@ -22,9 +24,10 @@ import threading
 import time
 import webbrowser
 from pathlib import Path
-from urllib.parse import urlencode
 
 import ollama_manager
+import ollama_catalog
+import local_chat_server
 
 try:
     import tkinter as tk
@@ -709,7 +712,7 @@ class LauncherApp(tk.Tk):
     def __init__(self):
         super().__init__()
 
-        self.config_data = load_config()
+        self.config_data = ollama_manager.migrate_mdpro_origin(load_config())
         self.server_process: subprocess.Popen | None = None
         self.is_starting = False
         self.available_models: list[str] = []
@@ -717,9 +720,14 @@ class LauncherApp(tk.Tk):
         self.venv_open_webui_ready = False
         self.auto_start_attempted = False
         self.ollama_manager = ollama_manager.OllamaManager(APP_DIR)
+        self.local_chat_server = local_chat_server.LocalChatServer()
         self.ollama_pull_process: subprocess.Popen | None = None
+        self.ollama_pull_active = False
         self.ollama_busy = False
         self.ollama_loading = False
+        self.ollama_search_generation = 0
+        self.ollama_tag_generation = 0
+        self.ollama_output_queue = queue.Queue()
         self.ollama_status_generation = 0
 
         self.title(f"{APP_NAME} v{APP_VERSION}")
@@ -739,6 +747,7 @@ class LauncherApp(tk.Tk):
         self.model_command_var = tk.StringVar()
         self.ollama_model_var = tk.StringVar(value=DEFAULT_MODEL_TO_PULL)
         self.ollama_search_var = tk.StringVar()
+        self.ollama_tag_var = tk.StringVar()
         self.ollama_origins_var = tk.StringVar(value=str(self.config_data.get("ollama_origins") or ollama_manager.DEFAULT_ORIGINS))
         self.ollama_server_status_var = tk.StringVar(value="Ollama 상태 확인 중")
         self.ollama_action_status_var = tk.StringVar(value="설치할 모델을 입력하거나 검색하십시오.")
@@ -868,7 +877,7 @@ class LauncherApp(tk.Tk):
 
         self.chat_button = ttk.Button(
             action_area,
-            text="Local AI Chat",
+            text="open-webui",
             style="Primary.TButton",
             command=self.open_browser,
         )
@@ -902,6 +911,7 @@ class LauncherApp(tk.Tk):
         editor_box.pack(fill="x", pady=(12, 0))
         editor_box.columnconfigure(0, weight=1)
         editor_box.columnconfigure(1, weight=1)
+        editor_box.columnconfigure(2, weight=1)
 
         ttk.Button(
             editor_box,
@@ -913,7 +923,12 @@ class LauncherApp(tk.Tk):
             text="Flask 웹앱 실행",
             command=self.start_flask_webapp,
             state="normal" if os.name == "nt" else "disabled",
-        ).grid(row=0, column=1, sticky="ew", padx=(4, 0), ipady=4)
+        ).grid(row=0, column=1, sticky="ew", padx=4, ipady=4)
+        ttk.Button(
+            editor_box,
+            text="로컬 테스트 Chat",
+            command=self.open_local_test_chat,
+        ).grid(row=0, column=2, sticky="ew", padx=(4, 0), ipady=4)
 
         context_box = ttk.LabelFrame(run_tab, text="Windows 오른쪽 클릭 메뉴", padding=12)
         if os.name == "nt":
@@ -942,7 +957,7 @@ class LauncherApp(tk.Tk):
                 "① Local환경실행은 PC에 직접 설치된 open-webui 명령을 실행합니다.\n" +
                 ("② 가상환경 실행은 ~/OpenWebUI/venv에서 서버를 실행합니다.\n" if sys.platform == "darwin" else "② 가상환경 실행은 C:\\OpenWebUI로 이동한 뒤 venv를 활성화하고 open-webui serve를 실행합니다.\n") +
                 "③ 자동실행은 다음 앱 시작 때 가상환경을 우선 사용하고, 없으면 Local환경실행을 사용합니다.\n"
-                "④ Local AI Chat 버튼은 http://localhost:8080/ 채팅 화면을 엽니다."
+                "④ open-webui 버튼은 설정한 Open WebUI 채팅 화면을 엽니다."
             ),
             justify="left",
         ).pack(anchor="w")
@@ -1117,7 +1132,7 @@ class LauncherApp(tk.Tk):
         self.ollama_origins_var.trace_add("write", lambda *_: self.update_ollama_commands())
         self.update_ollama_commands()
 
-        ttk.Label(models, text="모델명을 입력하거나 설치된 모델을 선택하세요. 기본 모델: gemma4:e2b", wraplength=690).pack(anchor="w")
+        ttk.Label(models, text="Ollama 온라인 모델을 검색하고 버전을 선택해 설치하세요. 기본: gemma4:e2b", wraplength=690).pack(anchor="w")
         model_line = ttk.Frame(models)
         model_line.pack(fill="x", pady=6)
         ttk.Label(model_line, text="모델명").pack(side="left")
@@ -1126,18 +1141,41 @@ class LauncherApp(tk.Tk):
         search_line = ttk.Frame(models)
         search_line.pack(fill="x", pady=4)
         ttk.Label(search_line, text="검색").pack(side="left")
-        ttk.Entry(search_line, textvariable=self.ollama_search_var).pack(side="left", fill="x", expand=True, padx=6)
-        ttk.Button(search_line, text="Ollama 온라인 검색", command=self.search_ollama_online).pack(side="left")
-        ttk.Label(models, text="설치된 모델 (검색어로 목록 필터)").pack(anchor="w")
-        self.ollama_listbox = tk.Listbox(models, height=7, exportselection=False)
-        self.ollama_listbox.pack(fill="both", expand=True, pady=4)
+        search_entry = ttk.Entry(search_line, textvariable=self.ollama_search_var)
+        search_entry.pack(side="left", fill="x", expand=True, padx=6)
+        search_entry.bind("<Return>", lambda _event: self.search_ollama_online())
+        ttk.Button(search_line, text="온라인 검색", style="Action.TButton", command=self.search_ollama_online).pack(side="left")
+        model_lists = ttk.Notebook(models)
+        self.ollama_model_lists = model_lists
+        model_lists.pack(fill="both", expand=True, pady=4)
+        online_models = ttk.Frame(model_lists, padding=3)
+        self.ollama_online_models_tab = online_models
+        installed_models = ttk.Frame(model_lists, padding=3)
+        model_lists.add(online_models, text="온라인 검색 결과")
+        model_lists.add(installed_models, text="설치된 모델")
+        self.ollama_online_listbox = tk.Listbox(online_models, height=5, exportselection=False)
+        self.ollama_online_listbox.pack(fill="both", expand=True)
+        self.ollama_online_listbox.bind("<<ListboxSelect>>", self.select_online_model)
+        self.ollama_listbox = tk.Listbox(installed_models, height=5, exportselection=False)
+        self.ollama_listbox.pack(fill="both", expand=True)
         self.ollama_listbox.bind("<<ListboxSelect>>", self.select_ollama_model)
         self.ollama_search_var.trace_add("write", lambda *_: self.filter_ollama_models())
+        tag_line = ttk.Frame(models)
+        tag_line.pack(fill="x", pady=3)
+        ttk.Label(tag_line, text="온라인 모델 버전").pack(side="left")
+        self.ollama_tag_combo = ttk.Combobox(tag_line, textvariable=self.ollama_tag_var, state="readonly")
+        self.ollama_tag_combo.pack(side="left", fill="x", expand=True, padx=6)
+        self.ollama_tag_combo.bind("<<ComboboxSelected>>", self.select_online_tag)
         model_buttons = ttk.Frame(models)
         model_buttons.pack(fill="x")
         ttk.Button(model_buttons, text="설치 모델 새로고침", command=self.refresh_ollama_tab_models).pack(side="left", fill="x", expand=True, padx=3)
         ttk.Button(model_buttons, text="선택 모델 로딩", command=self.load_ollama_model).pack(side="left", fill="x", expand=True, padx=3)
         ttk.Label(models, textvariable=self.ollama_action_status_var, wraplength=690).pack(anchor="w", pady=6)
+        ttk.Label(models, text="설치 터미널").pack(anchor="w")
+        self.ollama_terminal = tk.Text(models, height=7, wrap="word", bg="#182230", fg="#e4edf7",
+                                       insertbackground="#ffffff", relief="flat", padx=8, pady=6,
+                                       font=("Consolas" if os.name == "nt" else "Menlo", 9), state="disabled")
+        self.ollama_terminal.pack(fill="x", pady=(3, 0))
 
     def update_ollama_commands(self) -> None:
         origins = self.ollama_origins_var.get().strip()
@@ -1249,7 +1287,66 @@ class LauncherApp(tk.Tk):
             self.set_ollama_status("unknown", "확인 중 — 서버 종료 상태를 확인하고 있습니다.")
 
     def search_ollama_online(self) -> None:
-        webbrowser.open("https://ollama.com/search?" + urlencode({"q": self.ollama_search_var.get().strip()}))
+        query = self.ollama_search_var.get().strip()
+        self.ollama_model_lists.select(self.ollama_online_models_tab)
+        self.ollama_search_generation += 1
+        generation = self.ollama_search_generation
+        self.ollama_tag_generation += 1
+        self.ollama_online_listbox.delete(0, tk.END)
+        self.ollama_tag_combo.configure(values=[])
+        self.ollama_tag_var.set("")
+        self.ollama_action_status_var.set("Ollama 온라인 모델 검색 중...")
+        def work() -> None:
+            try:
+                results = ollama_catalog.search_models(query)
+                self.after(0, lambda: self.show_online_models(generation, results))
+            except Exception as exc:
+                self.after(0, lambda error=str(exc): self.online_search_failed(generation, error))
+        threading.Thread(target=work, daemon=True).start()
+
+    def show_online_models(self, generation: int, models: list[str]) -> None:
+        if generation != self.ollama_search_generation:
+            return
+        self.ollama_online_listbox.delete(0, tk.END)
+        for model in models:
+            self.ollama_online_listbox.insert(tk.END, model)
+        self.ollama_action_status_var.set(f"온라인 검색 결과 {len(models)}개 — 모델을 선택하세요." if models else "온라인 검색 결과가 없습니다. 다른 검색어를 입력하세요.")
+
+    def online_search_failed(self, generation: int, error: str) -> None:
+        if generation == self.ollama_search_generation:
+            self.ollama_action_status_var.set(f"온라인 검색 실패: {error}")
+
+    def select_online_model(self, _event: tk.Event) -> None:
+        selected = self.ollama_online_listbox.curselection()
+        if not selected:
+            return
+        model = self.ollama_online_listbox.get(selected[0])
+        self.ollama_model_var.set(model)
+        self.ollama_tag_var.set("")
+        self.ollama_tag_combo.configure(values=[])
+        self.ollama_tag_generation += 1
+        generation = self.ollama_tag_generation
+        self.ollama_action_status_var.set(f"{model} 버전 목록 확인 중...")
+        def work() -> None:
+            try:
+                tags = ollama_catalog.model_tags(model)
+                self.after(0, lambda: self.show_online_tags(generation, model, tags))
+            except Exception as exc:
+                self.after(0, lambda error=str(exc): self.online_tags_failed(generation, error))
+        threading.Thread(target=work, daemon=True).start()
+
+    def show_online_tags(self, generation: int, model: str, tags: list[str]) -> None:
+        if generation != self.ollama_tag_generation:
+            return
+        self.ollama_tag_combo.configure(values=tags)
+        self.ollama_action_status_var.set(f"{model}: 버전 {len(tags)}개. 버전을 선택하거나 기본 모델을 설치하세요.")
+
+    def online_tags_failed(self, generation: int, error: str) -> None:
+        if generation == self.ollama_tag_generation:
+            self.ollama_action_status_var.set(f"버전 목록 확인 실패: {error}. 모델명은 직접 입력할 수 있습니다.")
+
+    def select_online_tag(self, _event: tk.Event) -> None:
+        self.ollama_model_var.set(self.ollama_tag_var.get())
 
     def filter_ollama_models(self) -> None:
         query = self.ollama_search_var.get().strip().lower()
@@ -1282,33 +1379,93 @@ class LauncherApp(tk.Tk):
     def pull_ollama_model(self) -> None:
         model = self.ollama_model_var.get().strip()
         executable = find_ollama_command()
-        if not model_name_is_safe(model):
+        if not ollama_catalog.MODEL_PATTERN.fullmatch(model):
             messagebox.showwarning(APP_NAME, "올바른 Ollama 모델명을 입력하세요.")
             return
         if not executable:
             messagebox.showwarning(APP_NAME, "Ollama를 먼저 설치하십시오.")
             return
-        if self.ollama_pull_process and self.ollama_pull_process.poll() is None:
+        if self.ollama_pull_active:
             messagebox.showwarning(APP_NAME, "모델 다운로드가 이미 진행 중입니다.")
             return
         try:
             ensure_app_dir()
-            with (APP_DIR / "ollama-pull.log").open("a", encoding="utf-8") as log:
-                env = os.environ.copy()
-                env["OLLAMA_HOST"] = "127.0.0.1:11434"
-                self.ollama_pull_process = subprocess.Popen([executable, "pull", model], stdout=log, stderr=subprocess.STDOUT,
-                                                            env=env, creationflags=0x08000000 if os.name == "nt" else 0)
+            env = os.environ.copy()
+            env["OLLAMA_HOST"] = "127.0.0.1:11434"
+            self.ollama_pull_process = subprocess.Popen([executable, "pull", model], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                                        env=env, creationflags=0x08000000 if os.name == "nt" else 0)
         except OSError as exc:
             messagebox.showerror(APP_NAME, str(exc))
             return
-        self.ollama_action_status_var.set(f"{model} 다운로드 중 — 로그: {APP_DIR / 'ollama-pull.log'}")
-        self.after(1000, lambda: self.poll_ollama_pull(model))
+        self.ollama_pull_active = True
+        self.append_ollama_terminal(f"\n$ {quote_cmd_arg(executable)} pull {model}\n")
+        self.ollama_action_status_var.set(f"{model} 다운로드 중 — 설치 터미널을 확인하세요.")
+        process = self.ollama_pull_process
+        def read_output() -> None:
+            decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+            log = None
+            try:
+                try:
+                    log = (APP_DIR / "ollama-pull.log").open("a", encoding="utf-8")
+                    log.write(f"\n$ ollama pull {model}\n")
+                except OSError as exc:
+                    self.ollama_output_queue.put(("output", f"\n로그 파일을 열지 못했습니다: {exc}\n"))
+                    log = None
+                while True:
+                    chunk = process.stdout.read1(4096)
+                    if not chunk:
+                        break
+                    text = decoder.decode(chunk)
+                    if log:
+                        try:
+                            log.write(text)
+                            log.flush()
+                        except OSError:
+                            log.close()
+                            log = None
+                    self.ollama_output_queue.put(("output", text))
+                tail = decoder.decode(b"", final=True)
+                if tail:
+                    if log:
+                        log.write(tail)
+                    self.ollama_output_queue.put(("output", tail))
+            except Exception as exc:
+                self.ollama_output_queue.put(("output", f"\n로그 읽기 실패: {exc}\n"))
+                if process.poll() is None:
+                    process.terminate()
+            finally:
+                if log:
+                    log.close()
+                self.ollama_output_queue.put(("done", process.wait()))
+        threading.Thread(target=read_output, daemon=True).start()
+        self.after(100, lambda: self.poll_ollama_pull(model))
+
+    def append_ollama_terminal(self, output: str) -> None:
+        output = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", output).replace("\r", "\n")
+        self.ollama_terminal.configure(state="normal")
+        self.ollama_terminal.insert(tk.END, output)
+        if int(self.ollama_terminal.index("end-1c").split(".")[0]) > 3000:
+            self.ollama_terminal.delete("1.0", "1000.0")
+        self.ollama_terminal.see(tk.END)
+        self.ollama_terminal.configure(state="disabled")
 
     def poll_ollama_pull(self, model: str) -> None:
-        result = self.ollama_pull_process.poll()
+        result = None
+        while True:
+            try:
+                kind, value = self.ollama_output_queue.get_nowait()
+            except queue.Empty:
+                break
+            if kind == "output":
+                self.append_ollama_terminal(value)
+            else:
+                result = value
         if result is None:
-            self.after(1000, lambda: self.poll_ollama_pull(model))
-        elif result == 0:
+            self.after(100, lambda: self.poll_ollama_pull(model))
+            return
+        self.ollama_pull_active = False
+        self.append_ollama_terminal(f"\n[종료 코드: {result}]\n")
+        if result == 0:
             self.ollama_action_status_var.set(f"{model} 다운로드 완료")
             self.refresh_ollama_tab_models()
         else:
@@ -1866,6 +2023,14 @@ class LauncherApp(tk.Tk):
     def open_browser(self) -> None:
         webbrowser.open(self.server_url())
 
+    def open_local_test_chat(self) -> None:
+        try:
+            url = self.local_chat_server.start()
+        except OSError as exc:
+            messagebox.showerror(APP_NAME, f"로컬 테스트 Chat을 시작하지 못했습니다.\n포트 8768 또는 채팅 파일을 확인하세요.\n\n{exc}")
+            return
+        webbrowser.open(url)
+
     def stop_server(self) -> None:
         if self.server_process and self.server_process.poll() is None:
             try:
@@ -1909,7 +2074,8 @@ class LauncherApp(tk.Tk):
             except Exception as exc:
                 messagebox.showerror(APP_NAME, f"Ollama 서버를 종료하지 못했습니다: {exc}")
                 return
-        # 서버는 유지한다. CMD 창에서 로그를 계속 확인할 수 있다.
+        self.local_chat_server.stop()
+        # Open WebUI 서버는 유지한다. CMD 창에서 로그를 계속 확인할 수 있다.
         self.destroy()
 
 

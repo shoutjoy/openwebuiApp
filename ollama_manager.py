@@ -16,7 +16,21 @@ import urllib.request
 from pathlib import Path
 
 OLLAMA_URL = "http://127.0.0.1:11434"
-DEFAULT_ORIGINS = "http://localhost:8080,http://127.0.0.1:8080,http://localhost:8000,http://127.0.0.1:8000"
+MDPRO_ORIGIN = "https://mdproviewer.vercel.app"
+DEFAULT_ORIGINS = "http://localhost:8080,http://127.0.0.1:8080,http://localhost:8000,http://127.0.0.1:8000," + MDPRO_ORIGIN
+
+
+def migrate_mdpro_origin(config: dict) -> dict:
+    """Add MDpro once to existing settings, preserving custom origins."""
+    updated = dict(config)
+    if not updated.get("mdpro_origin_migrated"):
+        current = str(updated.get("ollama_origins") or DEFAULT_ORIGINS)
+        origins = [origin.strip().rstrip("/") for origin in current.split(",") if origin.strip()]
+        if MDPRO_ORIGIN not in origins:
+            origins.append(MDPRO_ORIGIN)
+        updated["ollama_origins"] = ",".join(origins)
+        updated["mdpro_origin_migrated"] = True
+    return updated
 
 
 def port_in_use() -> bool:

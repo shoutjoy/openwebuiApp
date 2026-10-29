@@ -16,11 +16,21 @@ macOS의 Python 설치에 Tkinter가 없다면 Tkinter를 포함한 Python을 �
 
 ## Ollama 탭
 
+`ollama serve` 실행 중 오류가 발생하면 Windows CMD에서 다음 명령을 순서대로 실행한다.
+
+```cmd
+set "OLLAMA_HOST=127.0.0.1:11434"
+set "OLLAMA_ORIGINS=http://localhost:8080,http://127.0.0.1:8080,http://localhost:8000,http://127.0.0.1:8000,https://mdproviewer.vercel.app,http://127.0.0.1:8765"
+ollama serve
+```
+
+포트가 이미 사용 중이라는 오류가 발생하면 기존 Ollama 앱이나 서버를 종료한 뒤 같은 CMD 창에서 다시 실행한다.
+
 - Windows와 macOS 공식 데스크톱 앱 다운로드 링크 및 설치 확인을 제공한다. 설치 후 기존 Ollama 데스크톱 앱이 서버를 자동으로 실행한 경우, CORS 설정을 적용하려면 해당 앱을 먼저 종료한다.
 - `서버 실행`은 입력한 `OLLAMA_ORIGINS`를 적용해 로컬 `127.0.0.1:11434`에서 Ollama를 시작한다. 허용할 웹 사이트의 Origin을 쉼표로 추가할 수 있으며, 변경 사항은 재시작할 때 적용된다. Windows PowerShell과 macOS 터미널 명령도 화면에 표시된다.
 - 서버 표시등은 Ollama API가 응답하면 초록색, 서버가 정지하면 빨간색, 작업 중이거나 포트의 응답을 확인할 수 없으면 노란색으로 표시된다.
 - 서버 중지와 재시작은 이 런처가 시작한 Ollama 프로세스에 적용된다. `기존 Ollama 서버 종료`는 11434 포트를 사용하는 외부 프로세스가 Ollama인지 확인한 후 종료한다. 다른 프로그램이 포트를 사용하면 종료하지 않는다. 데스크톱 앱이 서버를 자동으로 다시 실행하면 해당 앱을 직접 종료해야 한다. 런처를 닫으면 런처가 시작한 Ollama 서버도 종료된다. 외부 서버의 CORS 설정은 확인하거나 변경하지 않는다.
-- 기본 모델은 `gemma4:e2b`다. 모델명으로 다운로드하고, 설치된 모델을 검색·선택해 로딩할 수 있다. 온라인 검색은 Ollama의 검색 페이지를 연다. 로딩한 모델은 유휴 상태에서 5분 동안 유지되며, Open WebUI에서도 사용할 모델을 선택해야 한다.
+- 기본 모델은 `gemma4:e2b`다. 온라인 검색 결과에서 모델과 버전을 선택하고 `다운로드 / 설치`를 누르면 `ollama pull` 명령과 다운로드 진행 상황이 앱 내부 설치 터미널에 표시된다. `설치된 모델` 탭에서는 이미 내려받은 모델을 선택해 로딩할 수 있다. 로딩한 모델은 유휴 상태에서 5분 동안 유지되며, Open WebUI에서도 사용할 모델을 선택해야 한다. 온라인 목록과 버전 정보는 Ollama 웹사이트의 검색 결과 첫 페이지에서 가져온다.
 - 서버 로그는 `OpenWebUIChatLauncher/ollama-server.log`, 모델 다운로드 로그는 `OpenWebUIChatLauncher/ollama-pull.log`에 저장된다. 이 폴더는 Windows에서 `%LOCALAPPDATA%`, macOS에서 사용자 홈 폴더 아래에 있다.
 
 ## 핵심 동작
@@ -38,7 +48,8 @@ macOS의 Python 설치에 Tkinter가 없다면 Tkinter를 포함한 Python을 �
 
 - `Local환경실행`: PC에 직접 설치된 `open-webui` 실행 파일을 자동으로 찾은 경우 활성화된다.
 - `가상환경 실행`: `C:\OpenWebUI\venv\Scripts\open-webui.exe`가 확인된 경우 활성화된다. 실행 시 `C:\OpenWebUI`로 이동하고 `venv\Scripts\activate.bat`로 가상환경을 활성화한 뒤 `open-webui serve`를 실행한다.
-- `Local AI Chat`: `http://localhost:8080/` 채팅 화면을 연다.
+- `open-webui`: 설정한 Open WebUI 채팅 화면을 연다.
+- `로컬 테스트 Chat`: 복사한 Ollama Say 채팅 화면을 브라우저에서 열고 로컬 Ollama 서버에 연결한다. 런처가 열려 있는 동안 `http://127.0.0.1:8768/`에서 사용하며, 기본 화면 구성에 사용하는 외부 CDN 라이브러리는 인터넷이 필요하다.
 - `자동실행`: 체크하면 다음에 앱을 켤 때 Open WebUI 서버를 자동으로 실행한다. 전용 가상환경이 있으면 가상환경 실행을 우선 사용하고, 없으면 Local환경실행을 사용한다.
 - `MDpro`: https://mdproviewer.vercel.app/ 를 연다.
 - `서버 중지`: 이 런처가 시작한 Open WebUI 서버를 중지한다.
@@ -118,7 +129,15 @@ Open WebUI 설치에는 전용 가상환경 버튼을 사용하는 것이 더 �
 
 ### Python으로 실행
 
-`run_launcher.bat`를 더블클릭한다.
+Git과 Tkinter가 포함된 Python을 설치한 뒤, 터미널에서 저장소를 복제하고 해당 폴더로 이동하여 실행한다.
+
+```bash
+git clone https://github.com/shoutjoy/openwebuiApp.git
+cd openwebuiApp
+python launcher.py
+```
+
+macOS에서 `python` 명령을 사용할 수 없다면 `python3 launcher.py`로 실행한다. Windows에서는 `run_launcher.bat`를 더블클릭해도 된다.
 
 ### Flask 웹앱으로 실행
 

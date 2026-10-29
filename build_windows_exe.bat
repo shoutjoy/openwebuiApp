@@ -24,6 +24,7 @@ call .build-venv\Scripts\pyinstaller.exe ^
   --clean ^
   --onefile ^
   --windowed ^
+  --add-data "local_chat;local_chat" ^
   --name "OpenWebUI-Chat-Launcher" ^
   launcher.py
 if errorlevel 1 goto :error
